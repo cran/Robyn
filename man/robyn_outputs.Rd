@@ -26,12 +26,13 @@ robyn_outputs(
 
 \method{print}{robyn_outputs}(x, ...)
 
-robyn_csv(OutputCollect, csv_out = NULL, export = TRUE)
+robyn_csv(InputCollect, OutputCollect, csv_out = NULL, export = TRUE)
 
 robyn_plots(InputCollect, OutputCollect, export = TRUE)
 }
 \arguments{
-\item{InputCollect, OutputModels}{\code{robyn_run()} outcomes.}
+\item{InputCollect, OutputModels}{\code{robyn_inputs()} and \code{robyn_run()}
+outcomes.}
 
 \item{pareto_fronts}{Integer. Number of Pareto fronts for the output.
 \code{pareto_fronts = 1} returns the best models trading off \code{NRMSE} &

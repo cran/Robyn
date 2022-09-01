@@ -3,37 +3,46 @@
 \name{robyn_refresh}
 \alias{robyn_refresh}
 \alias{print.robyn_refresh}
+\alias{plot.robyn_refresh}
 \title{Build Refresh Model}
 \usage{
 robyn_refresh(
-  robyn_object,
+  json_file = NULL,
+  robyn_object = NULL,
+  dt_input = NULL,
+  dt_holidays = Robyn::dt_prophet_holidays,
   plot_folder_sub = NULL,
-  dt_input = dt_input,
-  dt_holidays = dt_holidays,
   refresh_steps = 4,
   refresh_mode = "manual",
   refresh_iters = 1000,
   refresh_trials = 3,
   plot_pareto = TRUE,
   version_prompt = FALSE,
+  export = TRUE,
+  calibration_input = NULL,
   ...
 )
 
 \method{print}{robyn_refresh}(x, ...)
+
+\method{plot}{robyn_refresh}(x, ...)
 }
 \arguments{
-\item{robyn_object}{Character. Path of the \code{Robyn.RDS} object
-that contains all previous modeling information.}
+\item{json_file}{Character. JSON file to import previously exported inputs
+(needs \code{dt_input} and \code{dt_holidays} parameters too).}
 
-\item{plot_folder_sub}{Character. Customize sub path to save plots. The total
-path is created with \code{dir.create(file.path(plot_folder, plot_folder_sub))}.
-For example, plot_folder_sub = "sub_dir".}
+\item{robyn_object}{Character or List. Path of the \code{Robyn.RDS} object
+that contains all previous modeling information or the imported list.}
 
 \item{dt_input}{data.frame. Should include all previous data and newly added
 data for the refresh.}
 
 \item{dt_holidays}{data.frame. Raw input holiday data. Load standard
 Prophet holidays using \code{data("dt_prophet_holidays")}.}
+
+\item{plot_folder_sub}{Character. Customize sub path to save plots. The total
+path is created with \code{dir.create(file.path(plot_folder, plot_folder_sub))}.
+For example, plot_folder_sub = "sub_dir".}
 
 \item{refresh_steps}{Integer. It controls how many time units the refresh
 model build move forward. For example, \code{refresh_steps = 4} on weekly data
@@ -44,7 +53,7 @@ means the InputCollect$window_start & InputCollect$window_end move forward
 the \code{robyn_refresh()} function builds refresh models with given
 \code{refresh_steps} repeatedly until there's no more data available. I
 manual mode, the \code{robyn_refresh()} only moves forward \code{refresh_steps}
-only once.}
+only once. "auto" mode has been deprecated when using \code{json_file} input.}
 
 \item{refresh_iters}{Integer. Iterations per refresh. Rule of thumb is, the
 more new data added, the more iterations needed. More reliable recommendation
@@ -57,9 +66,17 @@ More reliable recommendation still needs to be investigated.}
 and saving model one-pagers. Used when testing models.}
 
 \item{version_prompt}{Logical. If FALSE, the model refresh version will be
-selected based on the smallest combined error of normalised NRMSE & DECOMP.RSSD.
-If TRUE, a prompt will be presented to the user to select one of the refreshed
-models (one-pagers and pareto csv files will already be generated).}
+selected based on the smallest combined error of normalized NRMSE, DECOMP.RSSD, MAPE.
+If \code{TRUE}, a prompt will be presented to the user to select one of the refreshed
+models (one-pagers and Pareto CSV files will already be generated).}
+
+\item{export}{Boolean. Export outcomes into local files?}
+
+\item{calibration_input}{data.frame. Optional. Provide experimental results to
+calibrate. Your input should include the following values for each experiment:
+channel, liftStartDate, liftEndDate, liftAbs, spend, confidence, metric.
+You can calibrate any spend or organic variable with a well designed experiment.
+Check "Guide for calibration source" section.}
 
 \item{...}{Additional parameters to overwrite original custom parameters
 passed into initial model.}
@@ -99,29 +116,29 @@ we want to start using on new refresh model.
 }
 \examples{
 \dontrun{
-# Set the (pre-trained and exported) Robyn object path
-robyn_object <- "~/Desktop/Robyn.RDS"
-# Load dummy data
+# Loading dummy data
 data("dt_simulated_weekly")
-# Load holidays data
 data("dt_prophet_holidays")
+# Set the (pre-trained and exported) Robyn model JSON file
+json_file <- "~/Robyn_202208081444_init/RobynModel-2_55_4.json"
 
-# Run \code{robyn_refresh()} with 13 weeks cadance in auto mode
+# Run \code{robyn_refresh()} with 13 weeks cadence in auto mode
 Robyn <- robyn_refresh(
-  robyn_object = robyn_object,
+  json_file = json_file,
   dt_input = dt_simulated_weekly,
-  dt_holidays = dt_prophet_holidays,
+  dt_holidays = Robyn::dt_prophet_holidays,
   refresh_steps = 13,
   refresh_mode = "auto",
   refresh_iters = 200,
   refresh_trials = 5
 )
 
-# Run \code{robyn_refresh()} with 4 weeks cadance in manual mode
+# Run \code{robyn_refresh()} with 4 weeks cadence in manual mode
+json_file2 <- "~/Robyn_202208081444_init/Robyn_202208090847_rf/RobynModel-1_2_3.json"
 Robyn <- robyn_refresh(
-  robyn_object = robyn_object,
+  json_file = json_file2,
   dt_input = dt_simulated_weekly,
-  dt_holidays = dt_prophet_holidays,
+  dt_holidays = Robyn::dt_prophet_holidays,
   refresh_steps = 4,
   refresh_mode = "manual",
   refresh_iters = 200,

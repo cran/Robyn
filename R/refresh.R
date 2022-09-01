@@ -4,85 +4,6 @@
 # LICENSE file in the root directory of this source tree.
 
 ####################################################################
-#' Export Robyn Model to Local File
-#'
-#' Use \code{robyn_save()} to select and save as .RDS file the initial model.
-#'
-#' @inheritParams robyn_allocator
-#' @return (Invisible) list with filename and summary. Class: \code{robyn_save}.
-#' @export
-robyn_save <- function(robyn_object,
-                       select_model,
-                       InputCollect,
-                       OutputCollect,
-                       quiet = FALSE) {
-  check_robyn_object(robyn_object)
-  if (is.null(select_model)) select_model <- OutputCollect[["selectID"]]
-  if (!(select_model %in% OutputCollect$resultHypParam$solID)) {
-    stop(paste0("'select_model' must be one of these values: ", paste(
-      OutputCollect$resultHypParam$solID,
-      collapse = ", "
-    )))
-  }
-
-  output <- list(
-    robyn_object = robyn_object,
-    select_model = select_model,
-    summary = OutputCollect$xDecompAgg[
-      solID == select_model & !is.na(mean_spend)
-      , .(rn, coef,mean_spend, mean_response, roi_mean
-          , total_spend, total_response = xDecompAgg, roi_total)],
-    plot = robyn_onepagers(InputCollect, OutputCollect, select_model, quiet = TRUE, export = FALSE))
-  class(output) <- c("robyn_save", class(output))
-
-  if (file.exists(robyn_object)) {
-    if (!quiet) {
-      answer <- askYesNo(paste0(robyn_object, " already exists. Are you certain to overwrite it?"))
-    } else answer <- TRUE
-    if (answer == FALSE | is.na(answer)) {
-      message("Stopped export to avoid overwriting")
-      return(invisible(output))
-    }
-  }
-
-  OutputCollect$resultHypParam <- OutputCollect$resultHypParam[solID == select_model]
-  OutputCollect$xDecompAgg <- OutputCollect$xDecompAgg[solID == select_model]
-  OutputCollect$mediaVecCollect <- OutputCollect$mediaVecCollect[solID == select_model]
-  OutputCollect$xDecompVecCollect <- OutputCollect$xDecompVecCollect[solID == select_model]
-  OutputCollect$selectID <- select_model
-
-  InputCollect$refreshCounter <- 0
-  listInit <- list(OutputCollect = OutputCollect, InputCollect = InputCollect)
-  Robyn <- list(listInit = listInit)
-
-  saveRDS(Robyn, file = robyn_object)
-  if (!quiet) message("Exported results: ", robyn_object)
-  return(invisible(output))
-}
-
-#' @rdname robyn_save
-#' @aliases robyn_save
-#' @param x \code{robyn_save()} output.
-#' @export
-print.robyn_save <- function(x, ...) {
-  print(glued(
-    "
-  Exported file: {x$robyn_object}
-  Exported model: {x$select_model}
-
-  Media Summary for Selected Model:
-  "))
-  print(x$summary)
-}
-
-#' @rdname robyn_save
-#' @aliases robyn_save
-#' @param x \code{robyn_save()} output.
-#' @export
-plot.robyn_save <- function(x, ...) plot(x$plot[[1]], ...)
-
-
-####################################################################
 #' Build Refresh Model
 #'
 #' @description
@@ -114,6 +35,7 @@ plot.robyn_save <- function(x, ...) plot(x$plot[[1]], ...)
 #' @inheritParams robyn_run
 #' @inheritParams robyn_allocator
 #' @inheritParams robyn_outputs
+#' @inheritParams robyn_inputs
 #' @param dt_input data.frame. Should include all previous data and newly added
 #' data for the refresh.
 #' @param dt_holidays data.frame. Raw input holiday data. Load standard
@@ -126,44 +48,44 @@ plot.robyn_save <- function(x, ...) plot(x$plot[[1]], ...)
 #' the \code{robyn_refresh()} function builds refresh models with given
 #' \code{refresh_steps} repeatedly until there's no more data available. I
 #' manual mode, the \code{robyn_refresh()} only moves forward \code{refresh_steps}
-#' only once.
+#' only once. "auto" mode has been deprecated when using \code{json_file} input.
 #' @param refresh_iters Integer. Iterations per refresh. Rule of thumb is, the
 #' more new data added, the more iterations needed. More reliable recommendation
 #' still needs to be investigated.
 #' @param refresh_trials Integer. Trials per refresh. Defaults to 5 trials.
 #' More reliable recommendation still needs to be investigated.
 #' @param version_prompt Logical. If FALSE, the model refresh version will be
-#' selected based on the smallest combined error of normalised NRMSE & DECOMP.RSSD.
-#' If TRUE, a prompt will be presented to the user to select one of the refreshed
-#' models (one-pagers and pareto csv files will already be generated).
+#' selected based on the smallest combined error of normalized NRMSE, DECOMP.RSSD, MAPE.
+#' If \code{TRUE}, a prompt will be presented to the user to select one of the refreshed
+#' models (one-pagers and Pareto CSV files will already be generated).
 #' @param ... Additional parameters to overwrite original custom parameters
 #' passed into initial model.
 #' @return List. The Robyn object, class \code{robyn_refresh}.
 #' @examples
 #' \dontrun{
-#' # Set the (pre-trained and exported) Robyn object path
-#' robyn_object <- "~/Desktop/Robyn.RDS"
-#' # Load dummy data
+#' # Loading dummy data
 #' data("dt_simulated_weekly")
-#' # Load holidays data
 #' data("dt_prophet_holidays")
+#' # Set the (pre-trained and exported) Robyn model JSON file
+#' json_file <- "~/Robyn_202208081444_init/RobynModel-2_55_4.json"
 #'
-#' # Run \code{robyn_refresh()} with 13 weeks cadance in auto mode
+#' # Run \code{robyn_refresh()} with 13 weeks cadence in auto mode
 #' Robyn <- robyn_refresh(
-#'   robyn_object = robyn_object,
+#'   json_file = json_file,
 #'   dt_input = dt_simulated_weekly,
-#'   dt_holidays = dt_prophet_holidays,
+#'   dt_holidays = Robyn::dt_prophet_holidays,
 #'   refresh_steps = 13,
 #'   refresh_mode = "auto",
 #'   refresh_iters = 200,
 #'   refresh_trials = 5
 #' )
 #'
-#' # Run \code{robyn_refresh()} with 4 weeks cadance in manual mode
+#' # Run \code{robyn_refresh()} with 4 weeks cadence in manual mode
+#' json_file2 <- "~/Robyn_202208081444_init/Robyn_202208090847_rf/RobynModel-1_2_3.json"
 #' Robyn <- robyn_refresh(
-#'   robyn_object = robyn_object,
+#'   json_file = json_file2,
 #'   dt_input = dt_simulated_weekly,
-#'   dt_holidays = dt_prophet_holidays,
+#'   dt_holidays = Robyn::dt_prophet_holidays,
 #'   refresh_steps = 4,
 #'   refresh_mode = "manual",
 #'   refresh_iters = 200,
@@ -172,78 +94,95 @@ plot.robyn_save <- function(x, ...) plot(x$plot[[1]], ...)
 #' }
 #' @return List. Same as \code{robyn_run()} but with refreshed models.
 #' @export
-robyn_refresh <- function(robyn_object,
+robyn_refresh <- function(json_file = NULL,
+                          robyn_object = NULL,
+                          dt_input = NULL,
+                          dt_holidays = Robyn::dt_prophet_holidays,
                           plot_folder_sub = NULL,
-                          dt_input = dt_input,
-                          dt_holidays = dt_holidays,
                           refresh_steps = 4,
-                          refresh_mode = "manual", # "auto", "manual"
+                          refresh_mode = "manual",
                           refresh_iters = 1000,
                           refresh_trials = 3,
                           plot_pareto = TRUE,
                           version_prompt = FALSE,
+                          export = TRUE,
+                          calibration_input = NULL,
                           ...) {
   refreshControl <- TRUE
   while (refreshControl) {
 
-    ## Load initial model
-    if (!exists("robyn_object")) stop("Must speficy robyn_object")
-    check_robyn_object(robyn_object)
-    if (!file.exists(robyn_object)) {
-      stop("File does not exist or is somewhere else. Check: ", robyn_object)
-    } else {
-      Robyn <- readRDS(robyn_object)
-      objectPath <- dirname(robyn_object)
-      objectName <- sub("'\\..*$", "", basename(robyn_object))
-    }
+    ## Check for NA values
+    check_nas(dt_input)
+    check_nas(dt_holidays)
 
-    ## Count refresh
-    refreshCounter <- length(Robyn)
+    ## Load initial model
+    if (!is.null(json_file)) {
+      Robyn <- list()
+      json <- robyn_read(json_file, step = 2, quiet = TRUE)
+      listInit <- robyn_recreate(
+        json_file = json_file,
+        dt_input = dt_input,
+        dt_holidays = dt_holidays,
+        quiet = FALSE, ...
+      )
+      listInit$InputCollect$refreshSourceID <- json$ExportedModel$select_model
+      chainData <- robyn_chain(json_file)
+      listInit$InputCollect$refreshChain <- attr(chainData, "chain")
+      listInit$InputCollect$refreshDepth <- refreshDepth <- length(attr(chainData, "chain"))
+      listInit$OutputCollect$hyper_updated <- json$ExportedModel$hyper_updated
+      Robyn[["listInit"]] <- listInit
+      objectPath <- json$ExportedModel$plot_folder
+      refreshCounter <- 1 # Dummy for now (legacy)
+    }
+    if (!is.null(robyn_object)) {
+      RobynImported <- robyn_load(robyn_object)
+      Robyn <- RobynImported$Robyn
+      objectPath <- RobynImported$objectPath
+      robyn_object <- RobynImported$robyn_object
+      refreshCounter <- length(Robyn) - sum(names(Robyn) == "refresh")
+      refreshDepth <- NULL # Dummy for now (legacy)
+    }
+    depth <- ifelse(!is.null(refreshDepth), refreshDepth, refreshCounter)
+
     objectCheck <- if (refreshCounter == 1) {
       c("listInit")
     } else {
       c("listInit", paste0("listRefresh", 1:(refreshCounter - 1)))
     }
     if (!all(objectCheck %in% names(Robyn))) {
-      stop("Saved Robyn object is corrupted. It should contain ", paste(
-        objectCheck,
-        collapse = ",", ". Please rerun model."
-      ))
+      stop(
+        "Saved Robyn object is corrupted. It should contain these elements:\n ",
+        paste(objectCheck, collapse = ", "),
+        ".\n Please, re run the model or fix it manually."
+      )
     }
 
     ## Check rule of thumb: 50% of data shouldn't be new
-    original_periods <- nrow(Robyn$listInit$InputCollect$dt_modRollWind)
-    new_periods <- nrow(filter(
-      dt_input, get(Robyn$listInit$InputCollect$date_var) > Robyn$listInit$InputCollect$window_end))
-    it <- Robyn$listInit$InputCollect$intervalType
-    if (new_periods > 0.5 * (original_periods + new_periods))
-      warning(sprintf(paste(
-        "We recommend re-building a model rather than refreshing this one.",
-        "More than 50%% of your refresh data (%s %ss) is new data (%s %ss)"),
-        original_periods + new_periods, it, new_periods, it))
+    check_refresh_data(Robyn, dt_input)
 
     ## Get previous data
     if (refreshCounter == 1) {
       InputCollectRF <- Robyn$listInit$InputCollect
       listOutputPrev <- Robyn$listInit$OutputCollect
       InputCollectRF$xDecompAggPrev <- listOutputPrev$xDecompAgg
-      message(">>> Initial model loaded")
       if (length(unique(Robyn$listInit$OutputCollect$resultHypParam$solID)) > 1) {
-        stop("Run robyn_save first to select one initial model")
+        stop("Run robyn_write() first to select and export any Robyn model")
       }
     } else {
       listName <- paste0("listRefresh", refreshCounter - 1)
       InputCollectRF <- Robyn[[listName]][["InputCollect"]]
       listOutputPrev <- Robyn[[listName]][["OutputCollect"]]
       listReportPrev <- Robyn[[listName]][["ReportCollect"]]
-
-      message(paste(">>> Loaded refresh model:", refreshCounter - 1))
-
-      ## model selection from previous build
-      listOutputPrev$resultHypParam <- listOutputPrev$resultHypParam[bestModRF == TRUE]
-      listOutputPrev$xDecompAgg <- listOutputPrev$xDecompAgg[bestModRF == TRUE]
-      listOutputPrev$mediaVecCollect <- listOutputPrev$mediaVecCollect[bestModRF == TRUE]
-      listOutputPrev$xDecompVecCollect <- listOutputPrev$xDecompVecCollect[bestModRF == TRUE]
+      ## Model selection from previous build
+      if (!"error_score" %in% names(listOutputPrev$resultHypParam)) {
+        listOutputPrev$resultHypParam <- as.data.frame(listOutputPrev$resultHypParam) %>%
+          mutate(error_score = errors_scores(.))
+      }
+      which_bestModRF <- which.max(listOutputPrev$resultHypParam$error_score)[1]
+      listOutputPrev$resultHypParam <- listOutputPrev$resultHypParam[which_bestModRF, ]
+      listOutputPrev$xDecompAgg <- listOutputPrev$xDecompAgg[which_bestModRF, ]
+      listOutputPrev$mediaVecCollect <- listOutputPrev$mediaVecCollect[which_bestModRF, ]
+      listOutputPrev$xDecompVecCollect <- listOutputPrev$xDecompVecCollect[which_bestModRF, ]
     }
 
     InputCollectRF$refreshCounter <- refreshCounter
@@ -253,88 +192,88 @@ robyn_refresh <- function(robyn_object,
     }
 
     ## Load new data
-    dt_input <- as.data.table(dt_input)
-    date_input <- check_datevar(dt_input, InputCollectRF$date_var)
-    dt_input <- date_input$dt_input # sort date by ascending
-    dt_holidays <- as.data.table(dt_holidays)
-    InputCollectRF$dt_input <- dt_input
-    InputCollectRF$dt_holidays <- dt_holidays
+    if (TRUE) {
+      dt_input <- as_tibble(as.data.frame(dt_input))
+      date_input <- check_datevar(dt_input, InputCollectRF$date_var)
+      dt_input <- date_input$dt_input # sort date by ascending
+      InputCollectRF$dt_input <- dt_input
+      dt_holidays <- as_tibble(as.data.frame(dt_holidays))
+      InputCollectRF$dt_holidays <- dt_holidays
+    }
 
     #### Update refresh model parameters
 
     ## Refresh rolling window
-    totalDates <- as.Date(dt_input[, get(InputCollectRF$date_var)])
-    refreshStart <- as.Date(InputCollectRF$window_start) + InputCollectRF$dayInterval * refresh_steps
-    refreshEnd <- as.Date(InputCollectRF$window_end) + InputCollectRF$dayInterval * refresh_steps
-    InputCollectRF$refreshAddedStart <- as.Date(InputCollectRF$window_end) + InputCollectRF$dayInterval
-    InputCollectRF$window_start <- refreshStart
-    InputCollectRF$window_end <- refreshEnd
-
-    refreshStartWhich <- which.min(abs(difftime(totalDates, as.Date(refreshStart), units = "days")))
-    refreshEndWhich <- which.min(abs(difftime(totalDates, as.Date(refreshEnd), units = "days")))
-    InputCollectRF$rollingWindowStartWhich <- refreshStartWhich
-    InputCollectRF$rollingWindowEndWhich <- refreshEndWhich
-    InputCollectRF$rollingWindowLength <- refreshEndWhich - refreshStartWhich + 1
+    if (TRUE) {
+      totalDates <- as.Date(dt_input[, InputCollectRF$date_var][[1]])
+      refreshStart <- as.Date(InputCollectRF$window_start) + InputCollectRF$dayInterval * refresh_steps
+      refreshEnd <- as.Date(InputCollectRF$window_end) + InputCollectRF$dayInterval * refresh_steps
+      InputCollectRF$refreshAddedStart <- as.Date(InputCollectRF$window_end) + InputCollectRF$dayInterval
+      InputCollectRF$window_start <- refreshStart
+      InputCollectRF$window_end <- refreshEnd
+      refreshStartWhich <- which.min(abs(difftime(totalDates, as.Date(refreshStart), units = "days")))
+      refreshEndWhich <- which.min(abs(difftime(totalDates, as.Date(refreshEnd), units = "days")))
+      InputCollectRF$rollingWindowStartWhich <- refreshStartWhich
+      InputCollectRF$rollingWindowEndWhich <- refreshEndWhich
+      InputCollectRF$rollingWindowLength <- refreshEndWhich - refreshStartWhich + 1
+    }
 
     if (refreshEnd > max(totalDates)) {
       stop("Not enough data for this refresh. Input data from date ", refreshEnd, " or later required")
     }
+    if (!is.null(json_file) & refresh_mode == "auto") {
+      message("Input 'refresh_mode' = 'auto' has been deprecated. Changed to 'manual'")
+      refresh_mode <- "manual"
+    }
     if (refresh_mode == "manual") {
       refreshLooper <- 1
-      message(paste(">>> Refreshing model", refreshCounter, "in", refresh_mode, "mode"))
+      message(sprintf("\n>>> Building refresh model #%s in %s mode", depth, refresh_mode))
       refreshControl <- FALSE
     } else {
       refreshLooper <- floor(as.numeric(difftime(max(totalDates), refreshEnd, units = "days")) /
         InputCollectRF$dayInterval / refresh_steps)
-      message(paste(
-        ">>> Refreshing model", refreshCounter, "in",
-        refresh_mode, "mode.", refreshLooper, "more to go..."
+      message(sprintf(
+        "\n>>> Building refresh model #%s in %s mode. %s more to go...",
+        depth, refresh_mode, refreshLooper
       ))
     }
 
-    ## Refresh hyperparameter bounds
-    initBounds <- Robyn$listInit$OutputCollect$hyper_updated
-    initBoundsDis <- sapply(initBounds, function(x) ifelse(length(x) == 2, x[2] - x[1], 0))
-    newBoundsFreedom <- refresh_steps / InputCollectRF$rollingWindowLength
-
-    hyper_updated_prev <- listOutputPrev$hyper_updated
-    hypNames <- names(hyper_updated_prev)
-    for (h in 1:length(hypNames)) {
-      hn <- hypNames[h]
-      getHyp <- listOutputPrev$resultHypParam[, get(hn)]
-      getDis <- initBoundsDis[hn]
-      if (hn == "lambda") {
-        lambda_max <- unique(listOutputPrev$resultHypParam$lambda_max)
-        lambda_min <- lambda_max * 0.0001
-        getHyp <- getHyp / (lambda_max - lambda_min)
-      }
-      getRange <- initBounds[hn][[1]]
-
-      if (length(getRange)==2) {
-        newLowB <- getHyp - getDis * newBoundsFreedom
-        if (newLowB < getRange[1]) {
-          newLowB <- getRange[1]
-        }
-        newUpB <- getHyp + getDis * newBoundsFreedom
-        if (newUpB > getRange[2]) {
-          newUpB <- getRange[2]
-        }
-        newBounds <- unname(c(newLowB, newUpB))
-        hyper_updated_prev[hn][[1]] <- newBounds
-      } else {
-        hyper_updated_prev[hn][[1]] <- getRange
-      }
-    }
-    InputCollectRF$hyperparameters <- hyper_updated_prev
-
     #### Update refresh model parameters
 
+    ## Calibration new data
+    if (!is.null(calibration_input)) {
+      calibration_input <- bind_rows(
+        InputCollectRF$calibration_input, calibration_input
+      ) %>% distinct()
+      ## Check calibration data
+      calibration_input <- check_calibration(
+        dt_input = InputCollectRF$dt_input,
+        date_var = InputCollectRF$date_var,
+        calibration_input = calibration_input,
+        dayInterval = InputCollectRF$dayInterval,
+        dep_var = InputCollectRF$dep_var,
+        window_start = InputCollectRF$window_start,
+        window_end = InputCollectRF$window_end,
+        paid_media_spends = InputCollectRF$paid_media_spends,
+        organic_vars = InputCollectRF$organic_vars
+      )
+      InputCollectRF$calibration_input <- calibration_input
+    }
+
+    ## Refresh hyperparameter bounds
+    InputCollectRF$hyperparameters <- refresh_hyps(
+      initBounds = Robyn$listInit$OutputCollect$hyper_updated,
+      listOutputPrev, refresh_steps,
+      rollingWindowLength = InputCollectRF$rollingWindowLength
+    )
+
     ## Feature engineering for refreshed data
-    # Note that if custom prophet parameters were passed initially, will be used again unless changed in ...
+    # Note that if custom prophet parameters were passed initially,
+    # will be used again unless changed in ...
     InputCollectRF <- robyn_engineering(InputCollectRF, ...)
 
-    ## refresh model with adjusted decomp.rssd
-
+    ## Refresh model with adjusted decomp.rssd
+    # OutputCollectRF <- Robyn$listRefresh1$OutputCollect
     OutputCollectRF <- robyn_run(
       InputCollect = InputCollectRF,
       plot_folder = objectPath,
@@ -343,240 +282,176 @@ robyn_refresh <- function(robyn_object,
       add_penalty_factor = listOutputPrev[["add_penalty_factor"]],
       iterations = refresh_iters,
       trials = refresh_trials,
-      pareto_fronts = 3,
       refresh = TRUE,
+      outputs = TRUE, # So we end up with OutputCollect instead of OutputModels
+      export = export,
       plot_pareto = plot_pareto,
       ...
     )
 
-    ## select winner model for current refresh
-    # selectID <- OutputCollectRF$resultHypParam[which.min(decomp.rssd), solID] # min decomp.rssd selection
-    # norm_nrmse <- .min_max_norm(OutputCollectRF$resultHypParam$nrmse)
-    # norm_rssd <- .min_max_norm(OutputCollectRF$resultHypParam$decomp.rssd)
-    OutputCollectRF$resultHypParam[, error_dis := sqrt(.min_max_norm(nrmse)^2 +
-                                                         .min_max_norm(decomp.rssd)^2)] # min error distance selection
-    if (version_prompt) {
-      selectID <- readline('Input model version to use for the refresh: ')
-      OutputCollectRF$selectID <- selectID
-      message(
-        "Selected model ID: ", selectID, " for refresh model nr.",
-        refreshCounter, " based on your input\n"
-      )
-    } else {
-      selectID <- OutputCollectRF$resultHypParam[which.min(error_dis), solID]
-      OutputCollectRF$selectID <- selectID
-      message(
-        "Selected model ID: ", selectID, " for refresh model nr.",
-        refreshCounter, " based on the smallest combined error of normalised NRMSE & DECOMP.RSSD\n"
-      )
-    }
+    ## Select winner model for current refresh
+    OutputCollectRF$resultHypParam <- OutputCollectRF$resultHypParam %>%
+      arrange(.data$solID, desc(.data$error_score)) %>%
+      select(.data$solID, everything()) %>%
+      ungroup()
+    bestMod <- OutputCollectRF$resultHypParam$solID[1]
 
-    OutputCollectRF$resultHypParam[, bestModRF := solID == selectID]
-    OutputCollectRF$xDecompAgg[, bestModRF := solID == selectID]
-    OutputCollectRF$mediaVecCollect[, bestModRF := solID == selectID]
-    OutputCollectRF$xDecompVecCollect[, bestModRF := solID == selectID]
-
-
-    #### result collect & save
-    if (refreshCounter == 1) {
-      listOutputPrev$resultHypParam[, ":="(error_dis = sqrt(nrmse^2 + decomp.rssd^2),
-        bestModRF = TRUE, refreshStatus = refreshCounter - 1)]
-      listOutputPrev$xDecompAgg[, ":="(bestModRF = TRUE, refreshStatus = refreshCounter - 1)]
-      listOutputPrev$mediaVecCollect[, ":="(bestModRF = TRUE, refreshStatus = refreshCounter - 1)]
-      listOutputPrev$xDecompVecCollect[, ":="(bestModRF = TRUE, refreshStatus = refreshCounter - 1)]
-
-
-      resultHypParamReport <- rbind(
-        listOutputPrev$resultHypParam[bestModRF == TRUE],
-        OutputCollectRF$resultHypParam[bestModRF == TRUE][, refreshStatus := refreshCounter]
-      )
-      xDecompAggReport <- rbind(
-        listOutputPrev$xDecompAgg[bestModRF == TRUE],
-        OutputCollectRF$xDecompAgg[bestModRF == TRUE][, refreshStatus := refreshCounter]
-      )
-      mediaVecReport <- rbind(
-        listOutputPrev$mediaVecCollect[
-          bestModRF == TRUE & ds >= (refreshStart - InputCollectRF$dayInterval * refresh_steps) &
-            ds <= (refreshEnd - InputCollectRF$dayInterval * refresh_steps)
-        ][, ds := as.IDate(ds)],
-        OutputCollectRF$mediaVecCollect[
-          bestModRF == TRUE & ds >= InputCollectRF$refreshAddedStart &
-            ds <= refreshEnd
-        ][, ':='(refreshStatus = refreshCounter, ds = as.IDate(ds))]
-      )
-      mediaVecReport <- mediaVecReport[order(type, ds, refreshStatus)]
-      xDecompVecReport <- rbind(
-        listOutputPrev$xDecompVecCollect[bestModRF == TRUE][, ds := as.IDate(ds)],
-        OutputCollectRF$xDecompVecCollect[
-          bestModRF == TRUE & ds >= InputCollectRF$refreshAddedStart &
-            ds <= refreshEnd
-        ][, ':='(refreshStatus = refreshCounter, ds = as.IDate(ds))]
-      )
-    } else {
-      resultHypParamReport <- rbind(
-        listReportPrev$resultHypParamReport,
-        OutputCollectRF$resultHypParam[bestModRF == TRUE][
-          , refreshStatus := refreshCounter])
-      xDecompAggReport <- rbind(
-        listReportPrev$xDecompAggReport,
-        OutputCollectRF$xDecompAgg[bestModRF == TRUE][
-          , refreshStatus := refreshCounter])
-      mediaVecReport <- rbind(
-        listReportPrev$mediaVecReport,
-        OutputCollectRF$mediaVecCollect[
-          bestModRF == TRUE & ds >= InputCollectRF$refreshAddedStart &
-            ds <= refreshEnd
-        ][, ':='(refreshStatus = refreshCounter, ds = as.IDate(ds))]
-      )
-      mediaVecReport <- mediaVecReport[order(type, ds, refreshStatus)]
-      xDecompVecReport <- rbind(
-        listReportPrev$xDecompVecReport,
-        OutputCollectRF$xDecompVecCollect[
-          bestModRF == TRUE & ds >= InputCollectRF$refreshAddedStart &
-            ds <= refreshEnd
-        ][, ':='(refreshStatus = refreshCounter, ds = as.IDate(ds))]
-      )
-    }
-
-    fwrite(resultHypParamReport, paste0(OutputCollectRF$plot_folder, "report_hyperparameters.csv"))
-    fwrite(xDecompAggReport, paste0(OutputCollectRF$plot_folder, "report_aggregated.csv"))
-    fwrite(mediaVecReport, paste0(OutputCollectRF$plot_folder, "report_media_transform_matrix.csv"))
-    fwrite(xDecompVecReport, paste0(OutputCollectRF$plot_folder, "report_alldecomp_matrix.csv"))
-
-    #### Reporting plots
-    ## Actual vs fitted
-    xDecompVecReportPlot <- copy(xDecompVecReport)
-    xDecompVecReportPlot[, ":="(refreshStart = min(ds),
-      refreshEnd = max(ds)), by = "refreshStatus"]
-    xDecompVecReportPlot[, duration := as.numeric(
-      (refreshEnd - refreshStart + InputCollectRF$dayInterval) / InputCollectRF$dayInterval
-    )]
-    getRefreshStarts <- sort(unique(xDecompVecReportPlot$refreshStart))[-1]
-    dt_refreshDates <- unique(xDecompVecReportPlot[
-      , .(refreshStatus = as.factor(refreshStatus), refreshStart, refreshEnd, duration)
-    ])
-    dt_refreshDates[, label := ifelse(dt_refreshDates$refreshStatus == 0,
-      paste0(
-        "initial: ", dt_refreshDates$refreshStart, ", ",
-        dt_refreshDates$duration, InputCollectRF$intervalType, "s"
-      ),
-      paste0(
-        "refresh nr.", dt_refreshDates$refreshStatus, ": ", dt_refreshDates$refreshStart,
-        ", ", dt_refreshDates$duration, InputCollectRF$intervalType, "s"
-      )
-    )]
-
-    xDecompVecReportMelted <- melt.data.table(xDecompVecReportPlot[
-      , .(ds, refreshStart, refreshEnd, refreshStatus, actual = dep_var, predicted = depVarHat)
-    ],
-    id.vars = c("ds", "refreshStatus", "refreshStart", "refreshEnd")
-    )
-    pFitRF <- ggplot(data = xDecompVecReportMelted) +
-      geom_line(aes(x = ds, y = value, color = variable)) +
-      geom_rect(
-        data = dt_refreshDates, aes(xmin = refreshStart, xmax = refreshEnd, fill = refreshStatus),
-        ymin = -Inf, ymax = Inf, alpha = 0.2
-      ) +
-      theme(
-        panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
-        panel.background = element_blank(), # legend.position = c(0.1, 0.8),
-        legend.background = element_rect(fill = alpha("white", 0.4)),
-      ) +
-      scale_fill_brewer(palette = "BuGn") +
-      geom_text(data = dt_refreshDates, mapping = aes(
-        x = refreshStart, y = max(xDecompVecReportMelted$value), label = label,
-        angle = 270, hjust = -0.1, vjust = -0.2
-      ), color = "gray40") +
-      # geom_vline(xintercept = getRefreshStarts, linetype="dotted") +
-      labs(
-        title = "Model refresh: actual vs. predicted response",
-        subtitle = paste0(
-          "Assembled rsq: ", round(get_rsq(
-            true = xDecompVecReportPlot$dep_var, predicted = xDecompVecReportPlot$depVarHat
-          ), 2)
-          # ,"\nRefresh dates: ", paste(getRefreshStarts, collapse = ", ")
-        ),
-        x = "date", y = "response"
-      )
-    ggsave(
-      filename = paste0(OutputCollectRF$plot_folder, "report_actual_fitted.png"),
-      plot = pFitRF,
-      dpi = 900, width = 12, height = 8, limitsize = FALSE
-    )
-
-    ## stacked bar plot
-
-    xDecompAggReportPlotBase <- xDecompAggReport[
-      rn %in% c(InputCollectRF$prophet_vars, "(Intercept)"),
-      .(rn, perc = ifelse(refreshStatus == 0, xDecompPerc, xDecompPercRF), refreshStatus)
-    ]
-    xDecompAggReportPlotBase <- xDecompAggReportPlotBase[
-      , .(variable = "baseline", percentage = sum(perc)),
-      by = refreshStatus
-    ][, roi_total := NA]
-    xDecompAggReportPlot <- xDecompAggReport[
-      !(rn %in% c(InputCollectRF$prophet_vars, "(Intercept)")),
-      .(refreshStatus, variable = rn, percentage = ifelse(refreshStatus == 0, xDecompPerc, xDecompPercRF), roi_total)
-    ]
-    xDecompAggReportPlot <- rbind(xDecompAggReportPlot, xDecompAggReportPlotBase)[order(refreshStatus, -variable)]
-    xDecompAggReportPlot[, refreshStatus := ifelse(refreshStatus == 0, "init.mod", paste0("refresh", refreshStatus))]
-    ySecScale <- max(na.omit(xDecompAggReportPlot$roi_total)) / max(xDecompAggReportPlot$percentage) * 0.75
-    ymax <- max(c(na.omit(xDecompAggReportPlot$roi_total) / ySecScale, xDecompAggReportPlot$percentage)) * 1.1
-
-    pBarRF <- ggplot(data = xDecompAggReportPlot, mapping = aes(x = variable, y = percentage, fill = variable)) +
-      geom_bar(alpha = 0.8, position = "dodge", stat = "identity") +
-      facet_wrap(~refreshStatus, scales = "free") +
-      scale_fill_manual(values = robyn_palette()$fill) +
-      geom_text(aes(label = paste0(round(percentage * 100, 1), "%")),
-        size = 3,
-        position = position_dodge(width = 0.9), hjust = -0.25
-      ) +
-      geom_point(aes(x = variable, y = roi_total / ySecScale, color = variable),
-        size = 4, shape = 17, na.rm = TRUE,
-        data = xDecompAggReportPlot
-      ) +
-      geom_text(aes(label = round(roi_total, 2), x = variable, y = roi_total / ySecScale),
-        size = 3, na.rm = TRUE, hjust = -0.4, fontface = "bold",
-        position = position_dodge(width = 0.9),
-        data = xDecompAggReportPlot
-      ) +
-      scale_color_manual(values = robyn_palette()$fill) +
-      scale_y_continuous(
-        sec.axis = sec_axis(~ . * ySecScale), breaks = seq(0, ymax, 0.2),
-        limits = c(0, ymax), name = "roi_total"
-      ) +
-      coord_flip() +
-      theme(legend.position = "none", axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
-      labs(
-        title = "Model refresh: Decomposition & paid media ROI",
-        subtitle = paste0(
-          "baseline includes intercept and all prophet vars: ",
-          paste(InputCollectRF$prophet_vars, collapse = ", ")
+    # Pick best model (and don't crash if not valid)
+    selectID <- NULL
+    while (length(selectID) == 0) {
+      if (version_prompt) {
+        selectID <- readline("Input model ID to use for the refresh: ")
+        message(
+          "Selected model ID: ", selectID, " for refresh model #",
+          depth, " based on your input"
         )
-      )
-    ggsave(
-      filename = paste0(OutputCollectRF$plot_folder, "report_decomposition.png"),
-      plot = pBarRF,
-      dpi = 900, width = 12, height = 8, limitsize = FALSE
-    )
+        if (!selectID %in% OutputCollectRF$allSolutions) {
+          message(sprintf(
+            "Selected model (%s) NOT valid.\n  Choose any of: %s",
+            selectID, v2t(OutputCollectRF$allSolutions)
+          ))
+        }
+      } else {
+        selectID <- bestMod
+        message(
+          "Selected model ID: ", selectID, " for refresh model #",
+          depth, " based on the smallest combined normalised errors"
+        )
+      }
+      if (!isTRUE(selectID %in% OutputCollectRF$allSolutions)) {
+        version_prompt <- TRUE
+        selectID <- NULL
+      }
+    }
+    OutputCollectRF$selectID <- selectID
 
-    #### Save result objects
+    #### Result collect & save
+
+    # Add refreshStatus column to multiple OutputCollectRF data.frames
+    these <- c("resultHypParam", "xDecompAgg", "mediaVecCollect", "xDecompVecCollect")
+    for (tb in these) {
+      OutputCollectRF[[tb]] <- OutputCollectRF[[tb]] %>%
+        mutate(
+          refreshStatus = refreshCounter,
+          bestModRF = .data$solID %in% bestMod
+        )
+    }
+
+    # Create bestModRF and refreshStatus columns to listOutputPrev data.frames
+    if (refreshCounter == 1) {
+      for (tb in these) {
+        listOutputPrev[[tb]] <- mutate(
+          listOutputPrev[[tb]],
+          bestModRF = TRUE,
+          refreshStatus = 0
+        )
+      }
+      listReportPrev <- listOutputPrev
+      names(listReportPrev) <- paste0(names(listReportPrev), "Report")
+      listReportPrev$mediaVecReport <- listOutputPrev$mediaVecCollect %>%
+        filter(
+          .data$ds >= (refreshStart - InputCollectRF$dayInterval * refresh_steps),
+          .data$ds <= (refreshEnd - InputCollectRF$dayInterval * refresh_steps)
+        ) %>%
+        bind_rows(
+          OutputCollectRF$mediaVecCollect %>%
+            filter(
+              .data$bestModRF == TRUE,
+              .data$ds >= InputCollectRF$refreshAddedStart,
+              .data$ds <= refreshEnd
+            )
+        ) %>%
+        arrange(.data$type, .data$ds, .data$refreshStatus)
+      listReportPrev$xDecompVecReport <- listOutputPrev$xDecompVecCollect %>%
+        bind_rows(
+          OutputCollectRF$xDecompVecCollect %>%
+            filter(
+              .data$bestModRF == TRUE,
+              .data$ds >= InputCollectRF$refreshAddedStart,
+              .data$ds <= refreshEnd
+            )
+        )
+    }
+
+    resultHypParamReport <- listReportPrev$resultHypParamReport %>%
+      bind_rows(
+        filter(OutputCollectRF$resultHypParam, .data$bestModRF == TRUE)
+      ) %>%
+      mutate(refreshStatus = row_number() - 1)
+
+    xDecompAggReport <- listReportPrev$xDecompAggReport %>%
+      bind_rows(
+        filter(OutputCollectRF$xDecompAgg, .data$bestModRF == TRUE) %>%
+          mutate(refreshStatus = refreshCounter)
+      )
+
+    mediaVecReport <- as_tibble(listReportPrev$mediaVecReport) %>%
+      mutate(ds = as.Date(.data$ds, origin = "1970-01-01")) %>%
+      bind_rows(
+        filter(
+          mutate(OutputCollectRF$mediaVecCollect,
+            ds = as.Date(.data$ds, origin = "1970-01-01")
+          ),
+          .data$bestModRF == TRUE,
+          .data$ds >= InputCollectRF$refreshAddedStart,
+          .data$ds <= refreshEnd
+        ) %>%
+          mutate(refreshStatus = refreshCounter)
+      ) %>%
+      arrange(.data$type, .data$ds, .data$refreshStatus)
+
+    xDecompVecReport <- listReportPrev$xDecompVecReport %>%
+      mutate(ds = as.Date(.data$ds, origin = "1970-01-01")) %>%
+      bind_rows(
+        filter(
+          mutate(OutputCollectRF$xDecompVecCollect,
+            ds = as.Date(.data$ds, origin = "1970-01-01")
+          ),
+          .data$bestModRF == TRUE,
+          .data$ds >= InputCollectRF$refreshAddedStart,
+          .data$ds <= refreshEnd
+        ) %>%
+          mutate(refreshStatus = refreshCounter)
+      )
+
+    #### Result objects to export
     ReportCollect <- list(
       resultHypParamReport = resultHypParamReport,
       xDecompAggReport = xDecompAggReport,
       mediaVecReport = mediaVecReport,
-      xDecompVecReport = xDecompVecReport
+      xDecompVecReport = xDecompVecReport,
+      # Selected models (original + refresh IDs)
+      selectIDs = resultHypParamReport$solID
     )
-
-    listHolder <- list(
+    listNameUpdate <- paste0("listRefresh", refreshCounter)
+    Robyn[[listNameUpdate]] <- list(
       InputCollect = InputCollectRF,
       OutputCollect = OutputCollectRF,
       ReportCollect = ReportCollect
     )
 
-    listNameUpdate <- paste0("listRefresh", refreshCounter)
-    Robyn[[listNameUpdate]] <- listHolder
-    saveRDS(Robyn, file = robyn_object)
+    #### Reporting plots
+    # InputCollectRF <- Robyn$listRefresh1$InputCollect
+    # OutputCollectRF <- Robyn$listRefresh1$OutputCollect
+    # ReportCollect <- Robyn$listRefresh1$ReportCollect
+    if (!is.null(json_file)) {
+      json_temp <- robyn_write(
+        InputCollectRF, OutputCollectRF,
+        select_model = selectID,
+        export = TRUE, quiet = TRUE, ...
+      )
+      plots <- refresh_plots_json(OutputCollectRF, json_file = attr(json_temp, "json_file"), export = export)
+    } else {
+      plots <- try(refresh_plots(InputCollectRF, OutputCollectRF, ReportCollect, export = export))
+    }
+
+    if (export) {
+      message(paste(">>> Exporting refresh CSVs into directory..."))
+      write.csv(resultHypParamReport, paste0(OutputCollectRF$plot_folder, "report_hyperparameters.csv"))
+      write.csv(xDecompAggReport, paste0(OutputCollectRF$plot_folder, "report_aggregated.csv"))
+      write.csv(mediaVecReport, paste0(OutputCollectRF$plot_folder, "report_media_transform_matrix.csv"))
+      write.csv(xDecompVecReport, paste0(OutputCollectRF$plot_folder, "report_alldecomp_matrix.csv"))
+    }
 
     if (refreshLooper == 0) {
       refreshControl <- FALSE
@@ -585,13 +460,25 @@ robyn_refresh <- function(robyn_object,
   }
 
   # Save some parameters to print
-  Robyn[["refresh_steps"]] <- refresh_steps
-  Robyn[["refresh_mode"]] <- refresh_mode
-  Robyn[["refresh_trials"]] <- refresh_trials
-  Robyn[["refresh_iters"]] <- refresh_iters
+  Robyn[["refresh"]] <- list(
+    selectIDs = ReportCollect$selectIDs,
+    refresh_steps = refresh_steps,
+    refresh_mode = refresh_mode,
+    refresh_trials = refresh_trials,
+    refresh_iters = refresh_iters,
+    plots = plots
+  )
 
+  # Save Robyn object locally
+  Robyn <- Robyn[order(names(Robyn))]
   class(Robyn) <- c("robyn_refresh", class(Robyn))
-  invisible(Robyn)
+  if (is.null(json_file)) {
+    message(">> Exporting results: ", robyn_object)
+    saveRDS(Robyn, file = robyn_object)
+  } else {
+    robyn_write(InputCollectRF, OutputCollectRF, select_model = selectID, ...)
+  }
+  return(invisible(Robyn))
 }
 
 #' @rdname robyn_refresh
@@ -599,21 +486,59 @@ robyn_refresh <- function(robyn_object,
 #' @param x \code{robyn_refresh()} output.
 #' @export
 print.robyn_refresh <- function(x, ...) {
-  rf_list <- x[grep("Refresh", names(x), value = TRUE)]
-  top_models <- data.frame(sapply(rf_list, function(y) y$ReportCollect$resultHypParamReport$solID))
+  top_models <- x$refresh$selectIDs
+  top_models <- paste(top_models, sprintf("(%s)", 0:(length(top_models) - 1)))
   print(glued(
     "
-Refresh Models: {length(rf_list)}
-Mode: {x$refresh_mode}
-Steps: {x$refresh_steps}
-Trials: {x$refresh_trials}
-Iterations: {x$refresh_iters}
+Refresh Models: {length(top_models)}
+Mode: {x$refresh$refresh_mode}
+Steps: {x$refresh$refresh_steps}
+Trials: {x$refresh$refresh_trials}
+Iterations: {x$refresh$refresh_iters}
 
 Models (IDs):
-  {paste(top_models_plain, collapse = ', ')}
-",
-    top_models_plain = sapply(seq_along(top_models), function(i)
-      paste(names(top_models), paste(top_models[,i], collapse = ', '), sep = ": "))
+  {paste(top_models, collapse = ', ')}
+"
   ))
 }
 
+#' @rdname robyn_refresh
+#' @aliases robyn_refresh
+#' @param x \code{robyn_refresh()} output.
+#' @export
+plot.robyn_refresh <- function(x, ...) plot((x$refresh$plots[[1]] / x$refresh$plots[[2]]), ...)
+
+refresh_hyps <- function(initBounds, listOutputPrev, refresh_steps, rollingWindowLength) {
+  initBoundsDis <- sapply(initBounds, function(x) ifelse(length(x) == 2, x[2] - x[1], 0))
+  newBoundsFreedom <- refresh_steps / rollingWindowLength
+  message(">>> New bounds freedom: ", round(100 * newBoundsFreedom, 2), "%")
+  hyper_updated_prev <- listOutputPrev$hyper_updated
+  hypNames <- names(hyper_updated_prev)
+  resultHypParam <- as_tibble(listOutputPrev$resultHypParam)
+  for (h in 1:length(hypNames)) {
+    hn <- hypNames[h]
+    getHyp <- resultHypParam[, hn][[1]]
+    getDis <- initBoundsDis[hn]
+    if (hn == "lambda") {
+      lambda_max <- unique(resultHypParam$lambda_max)
+      lambda_min <- lambda_max * 0.0001
+      getHyp <- getHyp / (lambda_max - lambda_min)
+    }
+    getRange <- initBounds[hn][[1]]
+    if (length(getRange) == 2) {
+      newLowB <- getHyp - getDis * newBoundsFreedom
+      if (newLowB < getRange[1]) {
+        newLowB <- getRange[1]
+      }
+      newUpB <- getHyp + getDis * newBoundsFreedom
+      if (newUpB > getRange[2]) {
+        newUpB <- getRange[2]
+      }
+      newBounds <- unname(c(newLowB, newUpB))
+      hyper_updated_prev[hn][[1]] <- newBounds
+    } else {
+      hyper_updated_prev[hn][[1]] <- getRange
+    }
+  }
+  return(hyper_updated_prev)
+}

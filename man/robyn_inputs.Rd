@@ -7,7 +7,7 @@
 \usage{
 robyn_inputs(
   dt_input = NULL,
-  dt_holidays = NULL,
+  dt_holidays = Robyn::dt_prophet_holidays,
   date_var = "auto",
   dep_var = NULL,
   dep_var_type = NULL,
@@ -27,6 +27,7 @@ robyn_inputs(
   window_start = NULL,
   window_end = NULL,
   calibration_input = NULL,
+  json_file = NULL,
   InputCollect = NULL,
   ...
 )
@@ -41,13 +42,15 @@ dataset using \code{data("dt_simulated_weekly")}}
 Prophet holidays using \code{data("dt_prophet_holidays")}}
 
 \item{date_var}{Character. Name of date variable. Daily, weekly
-and monthly data supported. Weekly requires weekstart of Monday or Sunday.
-date_var must have format "2020-01-01". Default to automatic date detection.}
+and monthly data supported. Weekly requires week-start of Monday or Sunday.
+\code{date_var} must have format "2020-01-01" (YYY-MM-DD).
+Default to automatic date detection.}
 
 \item{dep_var}{Character. Name of dependent variable. Only one allowed}
 
 \item{dep_var_type}{Character. Type of dependent variable
-as "revenue" or "conversion". Only one allowed and case sensitive.}
+as "revenue" or "conversion". Will be used to calculate ROI or CPI,
+respectively. Only one allowed and case sensitive.}
 
 \item{prophet_vars}{Character vector. Include any of "trend",
 "season", "weekday", "holiday". Are case-sensitive. Highly recommended
@@ -55,10 +58,10 @@ to use all for daily data and "trend", "season", "holiday" for
 weekly and above cadence.}
 
 \item{prophet_signs}{Character vector. Choose any of
-\code{c("default", "positive", "negative")}. Control
+"default", "positive", "negative". Control
 the signs of coefficients for prophet variables. Must have same
 order and same length as \code{prophet_vars}. By default it's
-set to 'defualt'.}
+set to "default".}
 
 \item{prophet_country}{Character. Only one country allowed once.
 Including national holidays for 59 countries, whose list can
@@ -96,16 +99,16 @@ push-notifications, social media posts etc. Compared to paid_media_vars
 organic_vars are often  marketing activities without clear spends.}
 
 \item{organic_signs}{Character vector. Choose any of
-\code{c("default", "positive", "negative")}. Control
+"default", "positive", "negative". Control
 the signs of coefficients for organic_signs. Must have same
 order and same length as \code{organic_vars}. By default it's
-set to 'positive'.}
+set to "positive".}
 
 \item{factor_vars}{Character vector. Specify which of the provided
 variables in organic_vars or context_vars should be forced as a factor.}
 
-\item{adstock}{Character. Choose any of \code{c("geometric", "weibull_cdf",
-"weibull_pdf")}. Weibull adtock is a two-parametric function and thus more
+\item{adstock}{Character. Choose any of "geometric", "weibull_cdf",
+"weibull_pdf". Weibull adstock is a two-parametric function and thus more
 flexible, but takes longer time than the traditional geometric one-parametric
 function. CDF, or cumulative density function of the Weibull function allows
 changing decay rate over time in both C and S shape, while the peak value will
@@ -135,7 +138,11 @@ used for media, organic and context variables.}
 \item{calibration_input}{data.frame. Optional. Provide experimental results to
 calibrate. Your input should include the following values for each experiment:
 channel, liftStartDate, liftEndDate, liftAbs, spend, confidence, metric.
+You can calibrate any spend or organic variable with a well designed experiment.
 Check "Guide for calibration source" section.}
+
+\item{json_file}{Character. JSON file to import previously exported inputs
+(needs \code{dt_input} and \code{dt_holidays} parameters too).}
 
 \item{InputCollect}{Default to NULL. \code{robyn_inputs}'s output when
 \code{hyperparameters} are not yet set.}
@@ -176,15 +183,10 @@ metrics in case exposure metrics are used in \code{paid_media_vars}.
 }
 
 \examples{
-\donttest{
-# Load simulated input data
-data("dt_simulated_weekly")
-# Load standard prophet holidays
-data("dt_prophet_holidays")
-
+# Using dummy simulated data
 InputCollect <- robyn_inputs(
-  dt_input = dt_simulated_weekly,
-  dt_holidays = dt_prophet_holidays,
+  dt_input = Robyn::dt_simulated_weekly,
+  dt_holidays = Robyn::dt_prophet_holidays,
   date_var = "DATE",
   dep_var = "revenue",
   dep_var_type = "revenue",
@@ -203,5 +205,4 @@ InputCollect <- robyn_inputs(
   calibration_input = NULL
 )
 print(InputCollect)
-}
 }

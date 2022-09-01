@@ -6,16 +6,17 @@
 \title{Robyn Modelling Function}
 \usage{
 robyn_run(
-  InputCollect,
+  InputCollect = NULL,
   dt_hyper_fixed = NULL,
+  json_file = NULL,
   add_penalty_factor = FALSE,
   refresh = FALSE,
   seed = 123L,
-  outputs = TRUE,
+  outputs = FALSE,
   quiet = FALSE,
   cores = NULL,
-  trials = NULL,
-  iterations = NULL,
+  trials = 5,
+  iterations = 2000,
   nevergrad_algo = "TwoPointsDE",
   intercept_sign = "non_negative",
   lambda_control = NULL,
@@ -30,6 +31,9 @@ Required when \code{robyn_object} is not provided.}
 
 \item{dt_hyper_fixed}{data.frame. Only provide when loading old model results.
 It consumes hyperparameters from saved csv \code{pareto_hyperparameters.csv}.}
+
+\item{json_file}{Character. JSON file to import previously exported inputs
+(needs \code{dt_input} and \code{dt_holidays} parameters too).}
 
 \item{add_penalty_factor}{Boolean. Add penalty factor hyperparameters to
 glmnet's penalty.factor to be optimized by nevergrad. Use with caution, because

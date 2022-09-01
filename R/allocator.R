@@ -11,8 +11,8 @@
 #'
 #' @inheritParams robyn_run
 #' @inheritParams robyn_outputs
-#' @param robyn_object Character. Path of the \code{Robyn.RDS} object
-#' that contains all previous modeling information.
+#' @param robyn_object Character or List. Path of the \code{Robyn.RDS} object
+#' that contains all previous modeling information or the imported list.
 #' @param select_build Integer. Default to the latest model build. \code{select_build = 0}
 #' selects the initial model. \code{select_build = 1} selects the first refresh model.
 #' @param InputCollect List. Contains all input parameters for the model.
@@ -37,19 +37,21 @@
 #' \code{scenario = "max_response_expected_spend"}.
 #' @param expected_spend_days Integer. The duration of the future spend volume in
 #' \code{expected_spend}. Only applies when \code{scenario = "max_response_expected_spend"}.
-#' @param channel_constr_low,channel_constr_up Numeric vector. The lower and upper bounds
-#' for each paid media variable when maximizing total media response. \code{channel_constr_low
-#' = 0.7} means minimum spend of the variable is 70% of historical average. Lower bound must
-#' be >=0.01. \code{channel_constr_up = 1.5} means maximum spend of the variable is 150% of
-#' historical average. Upper bound must be >= lower bound. Both must have same length and order
-#' as \code{paid_media_spends}. nIt's ot recommended to 'exaggerate' upper bounds, esp. if the
-#' new level is way higher than historical level.
+#' @param channel_constr_low,channel_constr_up Numeric vectors. The lower and upper bounds
+#' for each paid media variable when maximizing total media response. For example,
+#' \code{channel_constr_low = 0.7} means minimum spend of the variable is 70% of historical
+#' average, using non-zero spend values, within \code{date_min} and \code{date_max} date range.
+#' Both constrains must be length 1 (same for all values) OR same length and order as
+#' \code{paid_media_spends}. It's not recommended to 'exaggerate' upper bounds, especially
+#' if the new level is way higher than historical level. Lower bound must be >=0.01,
+#' and upper bound should be < 5.
 #' @param maxeval Integer. The maximum iteration of the global optimization algorithm.
 #' Defaults to 100000.
 #' @param constr_mode Character. Options are \code{"eq"} or \code{"ineq"},
 #' indicating constraints with equality or inequality.
-#' @param date_min,date_max Character. Date range to calculate mean (of non-zero spends) and
-#' total spends. Default will consider all dates within window. Length must be 1.
+#' @param date_min,date_max Character/Date. Date range to calculate mean (of non-zero
+#' spends) and total spends. Default will consider all dates within modeled window.
+#' Length must be 1 for both parameters.
 #' @return A list object containing allocator result.
 #' @examples
 #' \dontrun{
@@ -97,6 +99,7 @@ robyn_allocator <- function(robyn_object = NULL,
                             InputCollect = NULL,
                             OutputCollect = NULL,
                             select_model = NULL,
+                            json_file = NULL,
                             optim_algo = "SLSQP_AUGLAG",
                             scenario = "max_historical_response",
                             expected_spend = NULL,
@@ -109,14 +112,31 @@ robyn_allocator <- function(robyn_object = NULL,
                             date_max = NULL,
                             export = TRUE,
                             quiet = FALSE,
-                            ui = FALSE) {
+                            ui = FALSE,
+                            ...) {
 
   #####################################
   #### Set local environment
 
+  ### Use previously exported model using json_file
+  if (!is.null(json_file)) {
+    if (is.null(InputCollect)) InputCollect <- robyn_inputs(json_file = json_file, ...)
+    if (is.null(OutputCollect)) {
+      OutputCollect <- robyn_run(
+        json_file = json_file, plot_folder = robyn_object, ...
+      )
+    }
+    if (is.null(select_model)) select_model <- OutputCollect$selectID
+  }
+
   ## Collect inputs
-  if (!is.null(robyn_object)) {
-    imported <- robyn_import(robyn_object, select_build, quiet)
+  if (!is.null(robyn_object) & (is.null(InputCollect) & is.null(OutputCollect))) {
+    if ("robyn_exported" %in% class(robyn_object)) {
+      imported <- robyn_object
+      robyn_object <- imported$robyn_object
+    } else {
+      imported <- robyn_load(robyn_object, select_build, quiet)
+    }
     InputCollect <- imported$InputCollect
     OutputCollect <- imported$OutputCollect
     select_model <- imported$select_model
@@ -149,36 +169,40 @@ robyn_allocator <- function(robyn_object = NULL,
   # Channels contrains
   # channel_constr_low <- rep(0.8, length(paid_media_spends))
   # channel_constr_up <- rep(1.2, length(paid_media_spends))
-  if (length(channel_constr_low) == 1)
+  if (length(channel_constr_low) == 1) {
     channel_constr_low <- rep(channel_constr_low, length(paid_media_spends))
-  if (length(channel_constr_up) == 1)
+  }
+  if (length(channel_constr_up) == 1) {
     channel_constr_up <- rep(channel_constr_up, length(paid_media_spends))
+  }
   names(channel_constr_low) <- paid_media_spends
   names(channel_constr_up) <- paid_media_spends
   channel_constr_low <- channel_constr_low[media_order]
   channel_constr_up <- channel_constr_up[media_order]
 
   # Hyper-parameters and results
-  dt_hyppar <- OutputCollect$resultHypParam[solID == select_model]
-  dt_bestCoef <- OutputCollect$xDecompAgg[solID == select_model & rn %in% paid_media_spends]
+  dt_hyppar <- filter(OutputCollect$resultHypParam, .data$solID == select_model)
+  dt_bestCoef <- filter(OutputCollect$xDecompAgg, .data$solID == select_model, .data$rn %in% paid_media_spends)
 
   ## Sort table and get filter for channels mmm coef reduced to 0
-  dt_coef <- dt_bestCoef[, .(rn, coef)]
+  dt_coef <- select(dt_bestCoef, .data$rn, .data$coef)
   get_rn_order <- order(dt_bestCoef$rn)
-  dt_coefSorted <- dt_coef[get_rn_order]
-  dt_bestCoef <- dt_bestCoef[get_rn_order]
-  coefSelectorSorted <- dt_coefSorted[, coef > 0]
+  dt_coefSorted <- dt_coef[get_rn_order, ]
+  dt_bestCoef <- dt_bestCoef[get_rn_order, ]
+  coefSelectorSorted <- dt_coefSorted$coef > 0
   names(coefSelectorSorted) <- dt_coefSorted$rn
 
   ## Filter and sort all variables by name that is essential for the apply function later
   if (!all(coefSelectorSorted)) {
     chn_coef0 <- setdiff(names(coefSelectorSorted), mediaSpendSorted[coefSelectorSorted])
     message("Excluded in optimiser because their coefficients are 0: ", paste(chn_coef0, collapse = ", "))
-  } else chn_coef0 <- "None"
+  } else {
+    chn_coef0 <- "None"
+  }
   mediaSpendSortedFiltered <- mediaSpendSorted[coefSelectorSorted]
-  dt_hyppar <- dt_hyppar[, .SD, .SDcols = hyper_names(adstock, mediaSpendSortedFiltered)]
-  setcolorder(dt_hyppar, sort(names(dt_hyppar)))
-  dt_bestCoef <- dt_bestCoef[rn %in% mediaSpendSortedFiltered]
+  dt_hyppar <- select(dt_hyppar, hyper_names(adstock, mediaSpendSortedFiltered)) %>%
+    select(sort(colnames(.)))
+  dt_bestCoef <- dt_bestCoef[dt_bestCoef$rn %in% mediaSpendSortedFiltered, ]
   channelConstrLowSorted <- channel_constr_low[mediaSpendSortedFiltered]
   channelConstrUpSorted <- channel_constr_up[mediaSpendSortedFiltered]
 
@@ -194,7 +218,7 @@ robyn_allocator <- function(robyn_object = NULL,
   coefsFiltered <- hills$coefsFiltered
 
   # Spend values based on date range set
-  dt_optimCost <- dt_mod %>% slice(startRW:endRW)
+  dt_optimCost <- slice(dt_mod, startRW:endRW)
   check_daterange(date_min, date_max, dt_optimCost$ds)
   if (is.null(date_min)) date_min <- min(dt_optimCost$ds)
   if (is.null(date_max)) date_max <- max(dt_optimCost$ds)
@@ -217,9 +241,10 @@ robyn_allocator <- function(robyn_object = NULL,
   for (i in seq_along(mediaSpendSortedFiltered)) {
     if (histSpendUnit[i] > 0) {
       val <- robyn_response(
+        json_file = json_file,
         robyn_object = robyn_object,
         select_build = select_build,
-        mediaSpendSortedFiltered[i],
+        media_metric = mediaSpendSortedFiltered[i],
         select_model = select_model,
         metric_value = histSpendUnit[i],
         dt_hyppar = OutputCollect$resultHypParam,
@@ -235,8 +260,9 @@ robyn_allocator <- function(robyn_object = NULL,
     histResponseUnitModel <- c(histResponseUnitModel, val)
   }
   names(histResponseUnitModel) <- mediaSpendSortedFiltered
-  if (!is.null(noSpendMedia) & !quiet)
+  if (!is.null(noSpendMedia) & !quiet) {
     message("Media variables with 0 spending during this date window: ", v2t(noSpendMedia))
+  }
 
   ## Build constraints function with scenarios
   if ("max_historical_response" %in% scenario) {
@@ -298,8 +324,9 @@ robyn_allocator <- function(robyn_object = NULL,
   )
 
   ## Collect output
-  dt_optimOut <- data.table(
+  dt_optimOut <- data.frame(
     solID = select_model,
+    dep_var_type = InputCollect$dep_var_type,
     channels = mediaSpendSortedFiltered,
     date_min = date_min,
     date_max = date_max,
@@ -329,15 +356,21 @@ robyn_allocator <- function(robyn_object = NULL,
     optmResponseUnitTotal = sum(-eval_f(nlsMod$solution)[["objective.channel"]]),
     optmRoiUnit = -eval_f(nlsMod$solution)[["objective.channel"]] / nlsMod$solution,
     optmResponseUnitLift = (-eval_f(nlsMod$solution)[["objective.channel"]] / histResponseUnitModel) - 1
-  )
-  dt_optimOut[, optmResponseUnitTotalLift := (optmResponseUnitTotal / initResponseUnitTotal) - 1]
+  ) %>%
+    mutate(optmResponseUnitTotalLift = (.data$optmResponseUnitTotal / .data$initResponseUnitTotal) - 1)
   .Options$ROBYN_TEMP <- NULL # Clean auxiliary method
 
   ## Plot allocator results
   plots <- allocation_plots(InputCollect, OutputCollect, dt_optimOut, select_model, scenario, export, quiet)
 
   ## Export results into CSV
-  if (export) fwrite(dt_optimOut, paste0(OutputCollect$plot_folder, select_model, "_reallocated.csv"))
+  if (export) {
+    export_dt_optimOut <- dt_optimOut
+    if (InputCollect$dep_var_type == "conversion") {
+      colnames(export_dt_optimOut) <- gsub("Roi", "CPA", colnames(export_dt_optimOut))
+    }
+    write.csv(export_dt_optimOut, paste0(OutputCollect$plot_folder, select_model, "_reallocated.csv"))
+  }
 
   output <- list(
     dt_optimOut = dt_optimOut,
@@ -360,11 +393,12 @@ robyn_allocator <- function(robyn_object = NULL,
 #' @param x \code{robyn_allocator()} output.
 #' @export
 print.robyn_allocator <- function(x, ...) {
-  temp <- x$dt_optimOut[!is.nan(x$dt_optimOut$optmRoiUnit),]
+  temp <- x$dt_optimOut[!is.nan(x$dt_optimOut$optmRoiUnit), ]
   print(glued(
     "
 Model ID: {x$dt_optimOut$solID[1]}
 Scenario: {scenario}
+Dep. Variable Type: {temp$dep_var_type[1]}
 Media Skipped (coef = 0): {paste0(x$skipped, collapse = ',')} {no_spend}
 Relative Spend Increase: {spend_increase_p}% ({spend_increase}{scenario_plus})
 Total Response Increase (Optimized): {signif(100 * x$dt_optimOut$optmResponseUnitTotalLift[1], 3)}%
@@ -376,8 +410,9 @@ Allocation Summary:
     scenario = ifelse(
       x$scenario == "max_historical_response",
       "Maximum Historical Response",
-      "Maximum Response with Expected Spend"),
-    no_spend = ifelse(!is.null(x$no_spend), paste('| (spend = 0):', v2t(x$no_spend, quotes = FALSE)), ''),
+      "Maximum Response with Expected Spend"
+    ),
+    no_spend = ifelse(!is.null(x$no_spend), paste("| (spend = 0):", v2t(x$no_spend, quotes = FALSE)), ""),
     spend_increase_p = signif(100 * x$dt_optimOut$expSpendUnitDelta[1], 3),
     spend_increase = formatNum(
       sum(x$dt_optimOut$optmSpendUnitTotal) - sum(x$dt_optimOut$initSpendUnitTotal),
@@ -385,7 +420,8 @@ Allocation Summary:
     ),
     scenario_plus = ifelse(
       x$scenario == "max_response_expected_spend",
-      sprintf(" in %s days", x$expected_spend_days), ""),
+      sprintf(" in %s days", x$expected_spend_days), ""
+    ),
     summary = paste(sprintf(
       "
 - %s:
@@ -412,33 +448,6 @@ Allocation Summary:
 #' @param x \code{robyn_allocator()} output.
 #' @export
 plot.robyn_allocator <- function(x, ...) plot(x$plots$plots, ...)
-
-robyn_import <- function(robyn_object, select_build, quiet) {
-  if (!file.exists(robyn_object)) {
-    stop("File does not exist or is somewhere else. Check: ", robyn_object)
-  } else {
-    Robyn <- readRDS(robyn_object)
-    objectPath <- dirname(robyn_object)
-    objectName <- sub("'\\..*$", "", basename(robyn_object))
-  }
-  select_build_all <- 0:(length(Robyn) - 1)
-  if (is.null(select_build)) {
-    select_build <- max(select_build_all)
-    if (!quiet) {
-      message(
-        "Using latest model: ", ifelse(select_build == 0, "initial model", paste0("refresh model #", select_build)), " for the response function"
-      )
-    }
-  }
-  if (!(select_build %in% select_build_all) | length(select_build) != 1) {
-    stop("Input 'select_build' must be one value of ", paste(select_build_all, collapse = ", "))
-  }
-  listName <- ifelse(select_build == 0, "listInit", paste0("listRefresh", select_build))
-  InputCollect <- Robyn[[listName]][["InputCollect"]]
-  OutputCollect <- Robyn[[listName]][["OutputCollect"]]
-  select_model <- OutputCollect$selectID
-  return(list(InputCollect = InputCollect, OutputCollect = OutputCollect, select_model = select_model))
-}
 
 eval_f <- function(X) {
 
@@ -575,29 +584,32 @@ eval_g_ineq <- function(X) {
 
 get_adstock_params <- function(InputCollect, dt_hyppar) {
   if (InputCollect$adstock == "geometric") {
-    getAdstockHypPar <- unlist(dt_hyppar[, .SD, .SDcols = na.omit(str_extract(names(dt_hyppar), ".*_thetas"))])
+    getAdstockHypPar <- unlist(select(dt_hyppar, na.omit(str_extract(names(dt_hyppar), ".*_thetas"))))
   } else if (InputCollect$adstock %in% c("weibull_cdf", "weibull_pdf")) {
-    getAdstockHypPar <- unlist(dt_hyppar[, .SD, .SDcols = na.omit(str_extract(names(dt_hyppar), ".*_shapes|.*_scales"))])
+    getAdstockHypPar <- unlist(select(dt_hyppar, na.omit(str_extract(names(dt_hyppar), ".*_shapes|.*_scales"))))
   }
   return(getAdstockHypPar)
 }
 
 get_hill_params <- function(InputCollect, OutputCollect, dt_hyppar, dt_coef, mediaSpendSortedFiltered, select_model) {
-  hillHypParVec <- unlist(dt_hyppar[, .SD, .SDcols = na.omit(str_extract(names(dt_hyppar), ".*_alphas|.*_gammas"))])
+  hillHypParVec <- unlist(select(dt_hyppar, na.omit(str_extract(names(dt_hyppar), ".*_alphas|.*_gammas"))))
   alphas <- hillHypParVec[str_which(names(hillHypParVec), "_alphas")]
   gammas <- hillHypParVec[str_which(names(hillHypParVec), "_gammas")]
   startRW <- InputCollect$rollingWindowStartWhich
   endRW <- InputCollect$rollingWindowEndWhich
-  chnAdstocked <- OutputCollect$mediaVecCollect[
-    type == "adstockedMedia" & solID == select_model, mediaSpendSortedFiltered,
-    with = FALSE
-  ][startRW:endRW]
+  chnAdstocked <- filter(
+    OutputCollect$mediaVecCollect,
+    .data$type == "adstockedMedia",
+    .data$solID == select_model
+  ) %>%
+    select(all_of(mediaSpendSortedFiltered)) %>%
+    slice(startRW:endRW)
   gammaTrans <- mapply(function(gamma, x) {
     round(quantile(seq(range(x)[1], range(x)[2], length.out = 100), gamma), 4)
   }, gamma = gammas, x = chnAdstocked)
   names(gammaTrans) <- names(gammas)
-  coefs <- dt_coef[, coef]
-  names(coefs) <- dt_coef[, rn]
+  coefs <- dt_coef$coef
+  names(coefs) <- dt_coef$rn
   coefsFiltered <- coefs[mediaSpendSortedFiltered]
   return(list(
     alphas = alphas,
