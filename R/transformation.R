@@ -55,16 +55,19 @@ mic_men <- function(x, Vmax, Km, reverse = FALSE) {
 #' @rdname adstocks
 #' @export
 adstock_geometric <- function(x, theta) {
-  x_decayed <- c(x[1], rep(0, length(x) - 1))
-  for (xi in 2:length(x_decayed)) {
-    x_decayed[xi] <- x[xi] + theta * x_decayed[xi - 1]
+  if (length(x) > 1) {
+    x_decayed <- c(x[1], rep(0, length(x) - 1))
+    for (xi in 2:length(x_decayed)) {
+      x_decayed[xi] <- x[xi] + theta * x_decayed[xi - 1]
+    }
+    thetaVecCum <- theta
+    for (t in 2:length(x)) {
+      thetaVecCum[t] <- thetaVecCum[t - 1] * theta
+    } # plot(thetaVecCum)
+  } else {
+    x_decayed <- x
+    thetaVecCum <- theta
   }
-
-  thetaVecCum <- theta
-  for (t in 2:length(x)) {
-    thetaVecCum[t] <- thetaVecCum[t - 1] * theta
-  } # plot(thetaVecCum)
-
   return(list(x = x, x_decayed = x_decayed, thetaVecCum = thetaVecCum))
 }
 
@@ -117,27 +120,33 @@ adstock_geometric <- function(x, theta) {
 #' adstock_weibull(rep(100, 5), shape = 0.5, scale = 0.5, type = "PDF")
 #' @rdname adstocks
 #' @export
-adstock_weibull <- function(x, shape, scale, windlen = length(x), type = "CDF") {
-  check_opts(toupper(type), c("CDF", "PDF"))
-  x_bin <- 1:windlen
-  scaleTrans <- round(quantile(1:windlen, scale), 0)
-  if (shape == 0) {
-    thetaVecCum <- thetaVec <- rep(0, windlen)
-  } else {
-    if ("CDF" %in% toupper(type)) {
-      thetaVec <- c(1, 1 - pweibull(head(x_bin, -1), shape = shape, scale = scaleTrans)) # plot(thetaVec)
-      thetaVecCum <- cumprod(thetaVec) # plot(thetaVecCum)
-    } else if ("PDF" %in% toupper(type)) {
-      thetaVecCum <- .normalize(dweibull(x_bin, shape = shape, scale = scaleTrans)) # plot(thetaVecCum)
+adstock_weibull <- function(x, shape, scale, windlen = length(x), type = "cdf") {
+  if (length(x) > 1) {
+    check_opts(tolower(type), c("cdf", "pdf"))
+    x_bin <- 1:windlen
+    scaleTrans <- round(quantile(1:windlen, scale), 0)
+    if (shape == 0 | scale == 0) {
+      x_decayed <- x
+      thetaVecCum <- thetaVec <- rep(0, windlen)
+    } else {
+      if ("cdf" %in% tolower(type)) {
+        thetaVec <- c(1, 1 - pweibull(head(x_bin, -1), shape = shape, scale = scaleTrans)) # plot(thetaVec)
+        thetaVecCum <- cumprod(thetaVec) # plot(thetaVecCum)
+      } else if ("pdf" %in% tolower(type)) {
+        thetaVecCum <- .normalize(dweibull(x_bin, shape = shape, scale = scaleTrans)) # plot(thetaVecCum)
+      }
+      x_decayed <- mapply(function(x_val, x_pos) {
+        x.vec <- c(rep(0, x_pos - 1), rep(x_val, windlen - x_pos + 1))
+        thetaVecCumLag <- lag(thetaVecCum, x_pos - 1, default = 0)
+        x.prod <- x.vec * thetaVecCumLag
+        return(x.prod)
+      }, x_val = x, x_pos = x_bin[seq_along(x)])
+      x_decayed <- rowSums(x_decayed)[seq_along(x)]
     }
+  } else {
+    x_decayed <- x
+    thetaVecCum <- 1
   }
-  x_decayed <- mapply(function(x_val, x_pos) {
-    x.vec <- c(rep(0, x_pos - 1), rep(x_val, windlen - x_pos + 1))
-    thetaVecCumLag <- lag(thetaVecCum, x_pos - 1, default = 0)
-    x.prod <- x.vec * thetaVecCumLag
-    return(x.prod)
-  }, x_val = x, x_pos = x_bin)
-  x_decayed <- rowSums(x_decayed)
   return(list(x = x, x_decayed = x_decayed, thetaVecCum = thetaVecCum))
 }
 
@@ -190,7 +199,7 @@ plot_adstock <- function(plot = TRUE) {
     geomCollect <- list()
     thetaVec <- c(0.01, 0.05, 0.1, 0.2, 0.5, 0.6, 0.7, 0.8, 0.9)
 
-    for (v in 1:length(thetaVec)) {
+    for (v in seq_along(thetaVec)) {
       thetaVecCum <- 1
       for (t in 2:100) {
         thetaVecCum[t] <- thetaVecCum[t - 1] * thetaVec[v]
@@ -277,7 +286,7 @@ plot_saturation <- function(plot = TRUE) {
 
     ## Plot alphas
     hillAlphaCollect <- list()
-    for (i in 1:length(alphaSamp)) {
+    for (i in seq_along(alphaSamp)) {
       hillAlphaCollect[[i]] <- data.frame(
         x = xSample,
         y = xSample**alphaSamp[i] / (xSample**alphaSamp[i] + (0.5 * 100)**alphaSamp[i]),
@@ -296,7 +305,7 @@ plot_saturation <- function(plot = TRUE) {
 
     ## Plot gammas
     hillGammaCollect <- list()
-    for (i in 1:length(gammaSamp)) {
+    for (i in seq_along(gammaSamp)) {
       hillGammaCollect[[i]] <- data.frame(
         x = xSample,
         y = xSample**2 / (xSample**2 + (gammaSamp[i] * 100)**2),

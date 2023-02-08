@@ -35,7 +35,6 @@ robyn_save <- function(InputCollect,
     )
 
   # Nice and tidy table format for hyper-parameters
-  hyps_name <- c("thetas", "shapes", "scales", "alphas", "gammas")
   regex <- paste(paste0("_", hyps_name), collapse = "|")
   hyps <- filter(OutputCollect$resultHypParam, .data$solID == select_model) %>%
     select(contains(hyps_name)) %>%
@@ -48,7 +47,7 @@ robyn_save <- function(InputCollect,
     select(.data$channel, .data$hyperparameter, .data$value) %>%
     tidyr::spread(key = "hyperparameter", value = "value")
 
-  values <- OutputCollect[!sapply(OutputCollect, is.list)]
+  values <- OutputCollect[!unlist(lapply(OutputCollect, is.list))]
   values <- values[!names(values) %in% c("allSolutions", "hyper_fixed", "plot_folder")]
 
   output <- list(
@@ -81,7 +80,7 @@ robyn_save <- function(InputCollect,
       } else {
         answer <- TRUE
       }
-      if (answer == FALSE | is.na(answer)) {
+      if (answer == FALSE || is.na(answer)) {
         message("Stopped export to avoid overwriting")
         return(invisible(output))
       }
@@ -129,7 +128,13 @@ print.robyn_save <- function(x, ...) {
   print(glued(
     "\n\nModel's Performance and Errors:\n    {errors}",
     errors = paste(
-      "R2 (train):", signif(x$errors$rsq_train, 4),
+      sprintf(
+        "R2 (%s): %s)",
+        ifelse(!isTRUE(x$ExportedModel$ts_validation), "train", "test"),
+        ifelse(!isTRUE(x$ExportedModel$ts_validation),
+          signif(x$errors$rsq_train, 4), signif(x$errors$rsq_test, 4)
+        )
+      ),
       "| NRMSE =", signif(x$errors$nrmse, 4),
       "| DECOMP.RSSD =", signif(x$errors$decomp.rssd, 4),
       "| MAPE =", signif(x$errors$mape, 4)
@@ -144,7 +149,7 @@ print.robyn_save <- function(x, ...) {
     replace(., . == "NA", "-") %>% as.data.frame())
 
   print(glued(
-    "\n\nHyper-parameters for channel transformations:\n    Adstock: {x$adstock}"
+    "\n\nHyper-parameters:\n    Adstock: {x$adstock}"
   ))
 
   print(as.data.frame(x$hyper_df))
@@ -161,7 +166,7 @@ plot.robyn_save <- function(x, ...) plot(x$plot[[1]], ...)
 #' @return (Invisible) list with imported results
 #' @export
 robyn_load <- function(robyn_object, select_build = NULL, quiet = FALSE) {
-  if ("robyn_exported" %in% class(robyn_object) | is.list(robyn_object)) {
+  if ("robyn_exported" %in% class(robyn_object) || is.list(robyn_object)) {
     Robyn <- robyn_object
     objectPath <- Robyn$listInit$OutputCollect$plot_folder
     robyn_object <- paste0(objectPath, "/Robyn_", Robyn$listInit$OutputCollect$selectID, ".RDS")
@@ -186,7 +191,7 @@ robyn_load <- function(robyn_object, select_build = NULL, quiet = FALSE) {
       )
     }
   }
-  if (!(select_build %in% select_build_all) | length(select_build) != 1) {
+  if (!(select_build %in% select_build_all) || length(select_build) != 1) {
     stop("Input 'select_build' must be one value of ", paste(select_build_all, collapse = ", "))
   }
   listName <- ifelse(select_build == 0, "listInit", paste0("listRefresh", select_build))

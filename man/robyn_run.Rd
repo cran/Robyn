@@ -9,6 +9,7 @@ robyn_run(
   InputCollect = NULL,
   dt_hyper_fixed = NULL,
   json_file = NULL,
+  ts_validation = FALSE,
   add_penalty_factor = FALSE,
   refresh = FALSE,
   seed = 123L,
@@ -29,11 +30,21 @@ robyn_run(
 \item{InputCollect}{List. Contains all input parameters for the model.
 Required when \code{robyn_object} is not provided.}
 
-\item{dt_hyper_fixed}{data.frame. Only provide when loading old model results.
-It consumes hyperparameters from saved csv \code{pareto_hyperparameters.csv}.}
+\item{dt_hyper_fixed}{data.frame or named list. Only provide when loading
+old model results. It consumes hyperparameters from saved csv
+\code{pareto_hyperparameters.csv} or JSON file to replicate a model.}
 
 \item{json_file}{Character. JSON file to import previously exported inputs
 (needs \code{dt_input} and \code{dt_holidays} parameters too).}
+
+\item{ts_validation}{Boolean. When set to \code{TRUE}, Robyn will split data
+by test, train, and validation partitions to validate the time series. By
+default the "train_size" range is set to \code{c(0.5, 0.8)}, but it can be
+customized or set to a fixed value using the hyperparameters input. For example,
+if \code{train_size = 0.7}, validation size and test size will both be 0.15
+and 0.15. When \code{ts_validation = FALSE}, nrmse_train is the
+objective function; when \code{ts_validation = TRUE}, nrmse_val is the objective
+function.}
 
 \item{add_penalty_factor}{Boolean. Add penalty factor hyperparameters to
 glmnet's penalty.factor to be optimized by nevergrad. Use with caution, because
@@ -48,7 +59,8 @@ more iterations to converge.}
 
 \item{quiet}{Boolean. Keep messages off?}
 
-\item{cores}{Integer. Default to \code{parallel::detectCores()} (max cores).}
+\item{cores}{Integer. Default to \code{parallel::detectCores() - 1} (all cores
+except one). Set to 1 if you want to turn parallel computing off.}
 
 \item{trials}{Integer. Recommended 5 for default
 \code{nevergrad_algo = "TwoPointsDE"}.}

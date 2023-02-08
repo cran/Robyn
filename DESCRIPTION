@@ -2,14 +2,14 @@ Package: Robyn
 Type: Package
 Title: Semi-Automated Marketing Mix Modeling (MMM) from Meta Marketing
         Science
-Version: 3.7.2
+Version: 3.9.0
 Authors@R: c(
-    person("Gufeng", "Zhou", , "gufeng@fb.com", c("aut")),
-    person("Leonel", "Sentana", , "leonelsentana@fb.com", c("aut")),
-    person("Igor", "Skokan", , "igorskokan@fb.com", c("aut")),
-    person("Bernardo", "Lares", , "bernardolares@fb.com", c("cre","aut")),
+    person("Gufeng", "Zhou", , "gufeng@meta.com", c("aut")),
+    person("Leonel", "Sentana", , "leonelsentana@meta.com", c("aut")),
+    person("Igor", "Skokan", , "igorskokan@meta.com", c("aut")),
+    person("Bernardo", "Lares", , "bernardolares@meta.com", c("cre","aut")),
     person("Meta Platforms, Inc.", role = c("cph", "fnd")))
-Maintainer: Bernardo Lares <bernardolares@fb.com>
+Maintainer: Bernardo Lares <bernardolares@meta.com>
 Description: Semi-Automated Marketing Mix Modeling (MMM) aiming to reduce human bias by means of ridge regression and evolutionary algorithms, enables actionable decision making providing a budget allocation and diminishing returns curves and allows ground-truth calibration to account for causation.
 Depends: R (>= 4.0.0)
 Imports: doParallel, doRNG, dplyr, foreach, ggplot2, ggridges, glmnet,
@@ -21,16 +21,16 @@ Config/reticulate: list( packages = list( list(package = "nevergrad",
 URL: https://github.com/facebookexperimental/Robyn,
         https://facebookexperimental.github.io/Robyn/
 BugReports: https://github.com/facebookexperimental/Robyn/issues
-RoxygenNote: 7.1.2
+RoxygenNote: 7.2.3
 License: MIT + file LICENSE
 Encoding: UTF-8
 LazyData: true
 NeedsCompilation: no
-Packaged: 2022-09-01 19:59:17 UTC; bernardolares
+Packaged: 2023-02-07 13:24:07 UTC; bernardolares
 Author: Gufeng Zhou [aut],
   Leonel Sentana [aut],
   Igor Skokan [aut],
   Bernardo Lares [cre, aut],
   Meta Platforms, Inc. [cph, fnd]
 Repository: CRAN
-Date/Publication: 2022-09-01 20:20:02 UTC
+Date/Publication: 2023-02-08 08:12:37 UTC

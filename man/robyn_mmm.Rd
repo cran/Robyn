@@ -11,9 +11,11 @@ robyn_mmm(
   cores,
   nevergrad_algo,
   intercept_sign,
+  ts_validation = TRUE,
   add_penalty_factor = FALSE,
   dt_hyper_fixed = NULL,
   refresh = FALSE,
+  trial = 1L,
   seed = 123L,
   quiet = FALSE
 )
@@ -27,7 +29,8 @@ Required when \code{robyn_object} is not provided.}
 
 \item{iterations}{Integer. Number of iterations to run.}
 
-\item{cores}{Integer. Default to \code{parallel::detectCores()} (max cores).}
+\item{cores}{Integer. Default to \code{parallel::detectCores() - 1} (all cores
+except one). Set to 1 if you want to turn parallel computing off.}
 
 \item{nevergrad_algo}{Character. Default to "TwoPointsDE". Options are
 \code{c("DE","TwoPointsDE", "OnePlusOne", "DoubleFastGADiscreteOnePlusOne",
@@ -39,15 +42,27 @@ Required when \code{robyn_object} is not provided.}
 and refit the model. Consider changing intercept_sign to "unconstrained" when
 there are \code{context_vars} with large positive values.}
 
+\item{ts_validation}{Boolean. When set to \code{TRUE}, Robyn will split data
+by test, train, and validation partitions to validate the time series. By
+default the "train_size" range is set to \code{c(0.5, 0.8)}, but it can be
+customized or set to a fixed value using the hyperparameters input. For example,
+if \code{train_size = 0.7}, validation size and test size will both be 0.15
+and 0.15. When \code{ts_validation = FALSE}, nrmse_train is the
+objective function; when \code{ts_validation = TRUE}, nrmse_val is the objective
+function.}
+
 \item{add_penalty_factor}{Boolean. Add penalty factor hyperparameters to
 glmnet's penalty.factor to be optimized by nevergrad. Use with caution, because
 this feature might add too much hyperparameter space and probably requires
 more iterations to converge.}
 
-\item{dt_hyper_fixed}{data.frame. Only provide when loading old model results.
-It consumes hyperparameters from saved csv \code{pareto_hyperparameters.csv}.}
+\item{dt_hyper_fixed}{data.frame or named list. Only provide when loading
+old model results. It consumes hyperparameters from saved csv
+\code{pareto_hyperparameters.csv} or JSON file to replicate a model.}
 
 \item{refresh}{Boolean. Set to \code{TRUE} when used in \code{robyn_refresh()}.}
+
+\item{trial}{Integer. Which trial are we running? Used to ID each model.}
 
 \item{seed}{Integer. For reproducible results when running nevergrad.}
 

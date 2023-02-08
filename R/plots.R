@@ -9,7 +9,7 @@
 #' @rdname robyn_outputs
 #' @return Invisible list with \code{ggplot} plots.
 #' @export
-robyn_plots <- function(InputCollect, OutputCollect, export = TRUE) {
+robyn_plots <- function(InputCollect, OutputCollect, export = TRUE, ...) {
   check_class("robyn_outputs", OutputCollect)
   pareto_fronts <- OutputCollect$pareto_fronts
   hyper_fixed <- OutputCollect$hyper_fixed
@@ -17,7 +17,6 @@ robyn_plots <- function(InputCollect, OutputCollect, export = TRUE) {
   all_plots <- list()
 
   if (!hyper_fixed) {
-
     ## Prophet
     if (!is.null(InputCollect$prophet_vars) && length(InputCollect$prophet_vars) > 0 ||
       !is.null(InputCollect$factor_vars) && length(InputCollect$factor_vars) > 0) {
@@ -30,9 +29,7 @@ robyn_plots <- function(InputCollect, OutputCollect, export = TRUE) {
       ) +
         geom_line(color = "steelblue") +
         facet_wrap(~ .data$variable, scales = "free", ncol = 1) +
-        labs(title = "Prophet decomposition") +
-        xlab(NULL) +
-        ylab(NULL) +
+        labs(title = "Prophet decomposition", x = NULL, y = NULL) +
         theme_lares() +
         scale_y_abbr()
 
@@ -67,21 +64,29 @@ robyn_plots <- function(InputCollect, OutputCollect, export = TRUE) {
     ## Hyperparameter sampling distribution
     if (length(temp_all) > 0) {
       resultHypParam <- temp_all$resultHypParam
-      hpnames_updated <- c(names(OutputCollect$OutputModels$hyper_updated), "robynPareto")
+      hpnames_updated <- c(names(OutputCollect$OutputModels$hyper_updated))
       hpnames_updated <- str_replace(hpnames_updated, "lambda", "lambda_hp")
       resultHypParam.melted <- resultHypParam %>%
-        select(all_of(hpnames_updated)) %>%
-        tidyr::gather("variable", "value", -.data$robynPareto) %>%
-        mutate(variable = ifelse(.data$variable == "lambda_hp", "lambda", .data$variable))
-      all_plots[["pSamp"]] <- ggplot(
-        resultHypParam.melted,
-        aes(x = .data$value, y = .data$variable, color = .data$variable, fill = .data$variable)
-      ) +
-        geom_violin(alpha = .5, size = 0) +
-        geom_point(size = 0.2) +
-        theme_lares(legend = "none") +
+        dplyr::select(any_of(hpnames_updated)) %>%
+        tidyr::gather("variable", "value") %>%
+        mutate(variable = ifelse(.data$variable == "lambda_hp", "lambda", .data$variable)) %>%
+        dplyr::rowwise() %>%
+        mutate(type = str_split(.data$variable, "_")[[1]][str_count(.data$variable, "_")[[1]] + 1]) %>%
+        mutate(channel = gsub(pattern = paste0("_", .data$type), "", .data$variable)) %>%
+        ungroup() %>%
+        mutate(
+          type = factor(.data$type, levels = unique(.data$type)),
+          channel = factor(.data$channel, levels = rev(unique(.data$channel)))
+        )
+      all_plots[["pSamp"]] <- ggplot(resultHypParam.melted) +
+        facet_grid(. ~ .data$type, scales = "free") +
+        geom_violin(
+          aes(x = .data$value, y = .data$channel, color = .data$channel, fill = .data$channel),
+          alpha = .8, size = 0
+        ) +
+        theme_lares(legend = "none", pal = 1) +
         labs(
-          title = "Hyperparameter Optimisation Sampling",
+          title = "Hyperparameters Optimization Distributions",
           subtitle = paste0(
             "Sample distribution", ", iterations = ",
             OutputCollect$iterations, " x ", OutputCollect$trials, " trial"
@@ -217,6 +222,15 @@ robyn_plots <- function(InputCollect, OutputCollect, export = TRUE) {
     }
   } # End of !hyper_fixed
 
+  if (isTRUE(OutputCollect$OutputModels$ts_validation)) {
+    ts_validation_plot <- ts_validation(OutputCollect$OutputModels, quiet = TRUE, ...)
+    ggsave(
+      paste0(OutputCollect$plot_folder, "ts_validation", ".png"),
+      plot = ts_validation_plot, dpi = 300,
+      width = 10, height = 12, limitsize = FALSE
+    )
+  }
+
   return(invisible(all_plots))
 }
 
@@ -224,8 +238,7 @@ robyn_plots <- function(InputCollect, OutputCollect, export = TRUE) {
 ####################################################################
 #' Generate and Export Robyn One-Pager Plots
 #'
-#' @inheritParams robyn_outputs
-#' @inheritParams robyn_csv
+#' @rdname robyn_outputs
 #' @return Invisible list with \code{patchwork} plot(s).
 #' @export
 robyn_onepagers <- function(InputCollect, OutputCollect, select_model = NULL, quiet = FALSE, export = TRUE) {
@@ -235,17 +248,20 @@ robyn_onepagers <- function(InputCollect, OutputCollect, select_model = NULL, qu
     hyper_fixed <- OutputCollect$hyper_fixed
     resultHypParam <- as_tibble(OutputCollect$resultHypParam)
     xDecompAgg <- as_tibble(OutputCollect$xDecompAgg)
+    val <- isTRUE(OutputCollect$OutputModels$ts_validation)
     sid <- NULL # for parallel loops
   }
   if (!is.null(select_model)) {
     if ("clusters" %in% select_model) select_model <- OutputCollect$clusters$models$solID
     resultHypParam <- resultHypParam[resultHypParam$solID %in% select_model, ]
     xDecompAgg <- xDecompAgg[xDecompAgg$solID %in% select_model, ]
-    if (!quiet) message(">> Generating only cluster results one-pagers (", nrow(resultHypParam), ")...")
+    if (!quiet & nrow(resultHypParam) > 1) {
+      message(">> Generating only cluster results one-pagers (", nrow(resultHypParam), ")...")
+    }
   }
 
   # Prepare for parallel plotting
-  if (check_parallel_plot()) registerDoParallel(OutputCollect$cores) else registerDoSEQ()
+  if (check_parallel_plot() && OutputCollect$cores > 1) registerDoParallel(OutputCollect$cores) else registerDoSEQ()
   if (!hyper_fixed) {
     pareto_fronts_vec <- 1:pareto_fronts
     count_mod_out <- nrow(resultHypParam[resultHypParam$robynPareto %in% pareto_fronts_vec, ])
@@ -258,12 +274,16 @@ robyn_onepagers <- function(InputCollect, OutputCollect, select_model = NULL, qu
   if (!all(pareto_fronts_vec %in% all_fronts)) pareto_fronts_vec <- all_fronts
 
   if (check_parallel_plot()) {
-    if (!quiet) message(paste(">> Plotting", count_mod_out, "selected models on", OutputCollect$cores, "cores..."))
+    if (!quiet & nrow(resultHypParam) > 1) {
+      message(paste(">> Plotting", count_mod_out, "selected models on", OutputCollect$cores, "cores..."))
+    }
   } else {
-    if (!quiet) message(paste(">> Plotting", count_mod_out, "selected models on 1 core (MacOS fallback)..."))
+    if (!quiet & nrow(resultHypParam) > 1) {
+      message(paste(">> Plotting", count_mod_out, "selected models on 1 core (MacOS fallback)..."))
+    }
   }
 
-  if (!quiet & count_mod_out > 0) {
+  if (!quiet && count_mod_out > 1) {
     pbplot <- txtProgressBar(min = 0, max = count_mod_out, style = 3)
   }
   temp <- OutputCollect$allPareto$plotDataCollect
@@ -282,24 +302,30 @@ robyn_onepagers <- function(InputCollect, OutputCollect, select_model = NULL, qu
     parallelResult <- foreach(sid = uniqueSol) %dorng% { # sid = uniqueSol[1]
       plotMediaShareLoop <- plotMediaShare[plotMediaShare$solID == sid, ]
       rsq_train_plot <- round(plotMediaShareLoop$rsq_train[1], 4)
-      nrmse_plot <- round(plotMediaShareLoop$nrmse[1], 4)
+      rsq_val_plot <- round(plotMediaShareLoop$rsq_val[1], 4)
+      rsq_test_plot <- round(plotMediaShareLoop$rsq_test[1], 4)
+      nrmse_train_plot <- round(plotMediaShareLoop$nrmse_train[1], 4)
+      nrmse_val_plot <- round(plotMediaShareLoop$nrmse_val[1], 4)
+      nrmse_test_plot <- round(plotMediaShareLoop$nrmse_test[1], 4)
       decomp_rssd_plot <- round(plotMediaShareLoop$decomp.rssd[1], 4)
-      mape_lift_plot <- ifelse(!is.null(InputCollect$calibration_input),
-        round(plotMediaShareLoop$mape[1], 4), NA
-      )
-      errors <- paste0(
-        "R2 train: ", rsq_train_plot,
-        ", NRMSE = ", nrmse_plot,
-        ", DECOMP.RSSD = ", decomp_rssd_plot,
-        ifelse(!is.na(mape_lift_plot), paste0(", MAPE = ", mape_lift_plot), "")
-      )
+      mape_lift_plot <- ifelse(!is.null(InputCollect$calibration_input), round(plotMediaShareLoop$mape[1], 4), 0)
+      train_size <- round(plotMediaShareLoop$train_size[1], 4)
 
-      errors <- paste0(
-        "R2 train: ", rsq_train_plot,
-        ", NRMSE = ", nrmse_plot,
-        ", DECOMP.RSSD = ", decomp_rssd_plot,
-        ifelse(!is.na(mape_lift_plot), paste0(", MAPE = ", mape_lift_plot), "")
-      )
+      if (val) {
+        errors <- paste0(
+          "NRMSE: train = ", nrmse_train_plot, " | val = ", nrmse_val_plot, " | test = ", nrmse_test_plot,
+          "; [Adj.R2: train = ", rsq_train_plot, " | val = ", rsq_val_plot, " | test = ", rsq_test_plot, "]",
+          ";\nDECOMP.RSSD = ", decomp_rssd_plot,
+          "; MAPE = ", mape_lift_plot
+        )
+      } else {
+        errors <- paste0(
+          "NRMSE train = ", nrmse_train_plot,
+          "; [Adj.R2 train = ", rsq_train_plot, "]",
+          "; DECOMP.RSSD = ", decomp_rssd_plot,
+          "; MAPE = ", mape_lift_plot
+        )
+      }
 
       ## 1. Spend x effect share comparison
       plotMediaShareLoopBar <- temp[[sid]]$plot1data$plotMediaShareLoopBar
@@ -447,7 +473,6 @@ robyn_onepagers <- function(InputCollect, OutputCollect, select_model = NULL, qu
           variable = stringr::str_to_title(.data$variable),
           ds = as.Date(.data$ds, origin = "1970-01-01")
         )
-      # rsq <- temp[[sid]]$plot5data$rsq
       p5 <- ggplot(
         xDecompVecPlotMelted,
         aes(x = .data$ds, y = .data$value, color = .data$variable)
@@ -458,9 +483,36 @@ robyn_onepagers <- function(InputCollect, OutputCollect, select_model = NULL, qu
         guides(linetype = "none") +
         labs(
           title = "Actual vs. Predicted Response",
-          # subtitle = paste("Train R2 =", round(rsq, 4)),
           x = "Date", y = "Response", color = NULL
         )
+      if (val) {
+        days <- sort(unique(p5$data$ds))
+        ndays <- length(days)
+        train_cut <- round(ndays * train_size)
+        val_cut <- train_cut + round(ndays * (1 - train_size) / 2)
+        p5 <- p5 +
+          # Train
+          geom_vline(xintercept = p5$data$ds[train_cut], colour = "#39638b", alpha = 0.8) +
+          geom_text(
+            x = p5$data$ds[train_cut], y = Inf, hjust = 0, vjust = 1.2,
+            angle = 270, colour = "#39638b", alpha = 0.5, size = 3.2,
+            label = sprintf("Train: %s", formatNum(100 * train_size, 1, pos = "%"))
+          ) +
+          # Validation
+          geom_vline(xintercept = p5$data$ds[val_cut], colour = "#39638b", alpha = 0.8) +
+          geom_text(
+            x = p5$data$ds[val_cut], y = Inf, hjust = 0, vjust = 1.2,
+            angle = 270, colour = "#39638b", alpha = 0.5, size = 3.2,
+            label = sprintf("Validation: %s", formatNum(100 * (1 - train_size) / 2, 1, pos = "%"))
+          ) +
+          # Test
+          geom_vline(xintercept = p5$data$ds[ndays], colour = "#39638b", alpha = 0.8) +
+          geom_text(
+            x = p5$data$ds[ndays], y = Inf, hjust = 0, vjust = 1.2,
+            angle = 270, colour = "#39638b", alpha = 0.5, size = 3.2,
+            label = sprintf("Test: %s", formatNum(100 * (1 - train_size) / 2, 1, pos = "%"))
+          )
+      }
 
       ## 6. Diagnostic: fitted vs residual
       xDecompVecPlot <- temp[[sid]]$plot6data$xDecompVecPlot
@@ -471,12 +523,52 @@ robyn_onepagers <- function(InputCollect, OutputCollect, select_model = NULL, qu
         theme_lares() +
         labs(x = "Fitted", y = "Residual", title = "Fitted vs. Residual")
 
+      ## 7. Immediate vs carryover
+      df_imme_caov <- temp[[sid]]$plot7data
+      p7 <- df_imme_caov %>%
+        mutate(type = factor(.data$type, levels = c("Carryover", "Immediate"))) %>%
+        ggplot(aes(
+          x = .data$percentage, y = .data$rn, fill = reorder(.data$type, as.integer(.data$type)),
+          label = paste0(round(.data$percentage * 100), "%")
+        )) +
+        geom_bar(stat = "identity", width = 0.5) +
+        geom_text(position = position_stack(vjust = 0.5)) +
+        scale_fill_manual(values = c("Immediate" = "#59B3D2", "Carryover" = "coral")) +
+        scale_x_percent() +
+        theme_lares(legend = "top", grid = "Xx") +
+        labs(
+          x = "% Response", y = NULL, fill = NULL,
+          title = "Immediate vs. Carryover Response Percentage"
+        )
+
+      ## 8. Bootstrapped ROI/CPA with CIs
+      if ("ci_low" %in% colnames(xDecompAgg)) {
+        metric <- ifelse(InputCollect$dep_var_type == "conversion", "CPA", "ROI")
+        p8 <- xDecompAgg %>%
+          filter(!is.na(.data$ci_low), .data$solID == sid) %>%
+          select(.data$rn, .data$solID, .data$boot_mean, .data$ci_low, .data$ci_up) %>%
+          ggplot(aes(x = .data$rn, y = .data$boot_mean)) +
+          geom_point(size = 3) +
+          geom_text(aes(label = signif(.data$boot_mean, 2)), vjust = -0.7, size = 3.3) +
+          geom_text(aes(y = .data$ci_low, label = signif(.data$ci_low, 2)), hjust = 1.1, size = 2.8) +
+          geom_text(aes(y = .data$ci_up, label = signif(.data$ci_up, 2)), hjust = -0.1, size = 2.8) +
+          geom_errorbar(aes(ymin = .data$ci_low, ymax = .data$ci_up), width = 0.25) +
+          labs(title = paste("In-cluster bootstrapped", metric, "with 95% CI & mean"), x = NULL, y = NULL) +
+          coord_flip() +
+          theme_lares()
+        if (metric == "ROI") {
+          p8 <- p8 + geom_hline(yintercept = 1, alpha = 0.5, colour = "grey50", linetype = "dashed")
+        }
+      } else {
+        p8 <- lares::noPlot("No bootstrap results")
+      }
+
       ## Aggregate one-pager plots and export
       ver <- as.character(utils::packageVersion("Robyn"))
       rver <- utils::sessionInfo()$R.version
       onepagerTitle <- sprintf("One-pager for Model ID: %s", sid)
       onepagerCaption <- sprintf("Robyn v%s [R-%s.%s]", ver, rver$major, rver$minor)
-      pg <- wrap_plots(p2, p5, p1, p4, p3, p6, ncol = 2) +
+      pg <- wrap_plots(p2, p5, p1, p8, p3, p7, p4, p6, ncol = 2) +
         plot_annotation(
           title = onepagerTitle, subtitle = errors,
           theme = theme_lares(background = "white"),
@@ -491,18 +583,18 @@ robyn_onepagers <- function(InputCollect, OutputCollect, select_model = NULL, qu
           dpi = 400, width = 17, height = 19
         )
       }
-      if (check_parallel_plot() & !quiet & count_mod_out > 0) {
+      if (check_parallel_plot() && !quiet && count_mod_out > 1) {
         cnt <- cnt + 1
         setTxtProgressBar(pbplot, cnt)
       }
       return(all_plots)
     }
-    if (!quiet & count_mod_out > 0) {
+    if (!quiet && count_mod_out > 1) {
       cnt <- cnt + length(uniqueSol)
       setTxtProgressBar(pbplot, cnt)
     }
   }
-  if (!quiet & count_mod_out > 0) close(pbplot)
+  if (!quiet && count_mod_out > 1) close(pbplot)
   # Stop cluster to avoid memory leaks
   if (check_parallel_plot()) stopImplicitCluster()
   return(invisible(parallelResult[[1]]))
@@ -529,17 +621,27 @@ allocation_plots <- function(InputCollect, OutputCollect, dt_optimOut, select_mo
   )
 
   rsq_train_plot <- round(plotDT_scurveMeanResponse$rsq_train[1], 4)
-  nrmse_plot <- round(plotDT_scurveMeanResponse$nrmse[1], 4)
+  rsq_val_plot <- round(plotDT_scurveMeanResponse$rsq_val[1], 4)
+  rsq_test_plot <- round(plotDT_scurveMeanResponse$rsq_test[1], 4)
+  nrmse_train_plot <- round(plotDT_scurveMeanResponse$nrmse_train[1], 4)
+  nrmse_val_plot <- round(plotDT_scurveMeanResponse$nrmse_val[1], 4)
+  nrmse_test_plot <- round(plotDT_scurveMeanResponse$nrmse_test[1], 4)
   decomp_rssd_plot <- round(plotDT_scurveMeanResponse$decomp.rssd[1], 4)
   mape_lift_plot <- ifelse(!is.null(InputCollect$calibration_input),
     round(plotDT_scurveMeanResponse$mape[1], 4), NA
   )
-  errors <- paste0(
-    "R2 train: ", rsq_train_plot,
-    ", NRMSE = ", nrmse_plot,
-    ", DECOMP.RSSD = ", decomp_rssd_plot,
-    ifelse(!is.na(mape_lift_plot), paste0(", MAPE = ", mape_lift_plot), "")
-  )
+  if (OutputCollect$OutputModels$ts_validation) {
+    errors <- paste0(
+      "Adj.R2: train = ", rsq_train_plot, " | val = ", rsq_val_plot, " | test = ", rsq_test_plot,
+      " ### NRMSE: train = ", nrmse_train_plot, " | val = ", nrmse_val_plot, " | test = ", nrmse_test_plot,
+      " ### DECOMP.RSSD = ", decomp_rssd_plot, " ### MAPE = ", mape_lift_plot
+    )
+  } else {
+    errors <- paste0(
+      "Adj.R2 train = ", rsq_train_plot, " ### NRMSE train = ", nrmse_train_plot,
+      " ### DECOMP.RSSD = ", decomp_rssd_plot, " ### MAPE = ", mape_lift_plot
+    )
+  }
 
   # 1. Response comparison plot
   plotDT_resp <- select(dt_optimOut, .data$channels, .data$initResponseUnit, .data$optmResponseUnit) %>%
@@ -860,9 +962,9 @@ refresh_plots_json <- function(OutputCollectRF, json_file, export = TRUE) {
     )
   dt_refreshDates <- data.frame(
     solID = names(chainData),
-    window_start = as.Date(sapply(chainData, function(x) x$InputCollect$window_start), origin = "1970-01-01"),
-    window_end = as.Date(sapply(chainData, function(x) x$InputCollect$window_end), origin = "1970-01-01"),
-    duration = unlist(c(0, sapply(chainData, function(x) x$InputCollect$refresh_steps)))
+    window_start = as.Date(unlist(lapply(chainData, function(x) x$InputCollect$window_start)), origin = "1970-01-01"),
+    window_end = as.Date(unlist(lapply(chainData, function(x) x$InputCollect$window_end)), origin = "1970-01-01"),
+    duration = unlist(c(0, unlist(lapply(chainData, function(x) x$InputCollect$refresh_steps))))
   ) %>%
     filter(.data$duration > 0) %>%
     mutate(refreshStatus = row_number()) %>%
@@ -929,23 +1031,26 @@ refresh_plots_json <- function(OutputCollectRF, json_file, export = TRUE) {
     group_by(.data$solID, .data$label, .data$variable) %>%
     summarise_all(sum)
 
-  outputs[["pBarRF"]] <- pBarRF <- ggplot(df, aes(y = .data$variable)) +
+  outputs[["pBarRF"]] <- pBarRF <- df %>%
+    ggplot(aes(y = .data$variable)) +
     geom_col(aes(x = .data$decompPer)) +
-    geom_text(aes(
-      x = .data$decompPer,
-      label = formatNum(100 * .data$decompPer, signif = 2, pos = "%")
-    ),
-    na.rm = TRUE, hjust = -0.2, size = 2.8
+    geom_text(
+      aes(
+        x = .data$decompPer,
+        label = formatNum(100 * .data$decompPer, signif = 2, pos = "%")
+      ),
+      na.rm = TRUE, hjust = -0.2, size = 2.8
     ) +
     geom_point(aes(x = .data$performance), na.rm = TRUE, size = 2, colour = "#39638b") +
-    geom_text(aes(
-      x = .data$performance,
-      label = formatNum(.data$performance, 2)
-    ),
-    na.rm = TRUE, hjust = -0.4, size = 2.8, colour = "#39638b"
+    geom_text(
+      aes(
+        x = .data$performance,
+        label = formatNum(.data$performance, 2)
+      ),
+      na.rm = TRUE, hjust = -0.4, size = 2.8, colour = "#39638b"
     ) +
     facet_wrap(. ~ .data$label, scales = "free") +
-    scale_x_percent(limits = c(0, max(df$performance, na.rm = TRUE) * 1.2)) +
+    # scale_x_percent(limits = c(0, max(df$performance, na.rm = TRUE) * 1.2)) +
     labs(
       title = paste(
         "Model refresh: Decomposition & Paid Media",
@@ -969,4 +1074,87 @@ refresh_plots_json <- function(OutputCollectRF, json_file, export = TRUE) {
   }
 
   return(invisible(outputs))
+}
+
+
+####################################################################
+#' Generate Plots for Time-Series Validation
+#'
+#' Create a plot to visualize the convergence for each of the datasets
+#' when time-series validation is enabled when running \code{robyn_run()}.
+#' As a reference, the closer the test and validation convergence points are,
+#' the better, given the time-series wasn't overfitted.
+#'
+#' @rdname robyn_outputs
+#' @return Invisible list with \code{ggplot} plots.
+#' @export
+ts_validation <- function(OutputModels, quiet = FALSE, ...) {
+  if (!isTRUE(OutputModels$ts_validation)) {
+    return(NULL)
+  }
+  resultHypParam <- bind_rows(
+    lapply(OutputModels[
+      which(names(OutputModels) %in% paste0("trial", seq(OutputModels$trials)))
+    ], function(x) x$resultCollect$resultHypParam)
+  ) %>%
+    group_by(.data$trial) %>%
+    mutate(i = row_number()) %>%
+    ungroup()
+
+  resultHypParamLong <- suppressWarnings(
+    resultHypParam %>%
+      select(.data$solID, .data$i, .data$trial, .data$train_size, starts_with("rsq_")) %>%
+      mutate(trial = paste("Trial", .data$trial)) %>%
+      tidyr::gather("dataset", "rsq", starts_with("rsq_")) %>%
+      bind_cols(select(resultHypParam, .data$solID, starts_with("nrmse_")) %>%
+        tidyr::gather("del", "nrmse", starts_with("nrmse_")) %>%
+        select(.data$nrmse)) %>%
+      # group_by(.data$trial, .data$dataset) %>%
+      mutate(
+        rsq = lares::winsorize(.data$rsq, thresh = c(0.01, 0.99)),
+        nrmse = lares::winsorize(.data$nrmse, thresh = c(0.00, 0.99)),
+        dataset = gsub("rsq_", "", .data$dataset)
+      ) %>%
+      ungroup()
+  )
+
+  pIters <- resultHypParam %>%
+    ggplot(aes(x = .data$i, y = .data$train_size)) +
+    geom_point(fill = "black", alpha = 0.5, size = 1.2, pch = 23) +
+    # geom_smooth() +
+    labs(y = "Train Size", x = "Iteration") +
+    scale_y_percent() +
+    theme_lares() +
+    scale_x_abbr()
+
+  pRSQ <- ggplot(resultHypParamLong, aes(
+    x = .data$i, y = .data$rsq,
+    colour = .data$dataset,
+    group = as.character(.data$trial)
+  )) +
+    geom_point(alpha = 0.5, size = 0.9) +
+    facet_grid(.data$trial ~ .) +
+    geom_hline(yintercept = 0, linetype = "dashed") +
+    labs(y = "Adjusted R2 [1% Winsorized]", x = "Iteration", colour = "Dataset") +
+    theme_lares(legend = "top", pal = 2) +
+    scale_x_abbr()
+
+  pNRMSE <- ggplot(resultHypParamLong, aes(
+    x = .data$i, y = .data$nrmse,
+    colour = .data$dataset
+    # group = as.character(.data$trial)
+  )) +
+    geom_point(alpha = 0.2, size = 0.9) +
+    geom_smooth(method = "gam", formula = y ~ s(x, bs = "cs")) +
+    facet_grid(.data$trial ~ .) +
+    geom_hline(yintercept = 0, linetype = "dashed") +
+    labs(y = "NRMSE [Upper 1% Winsorized]", x = "Iteration", colour = "Dataset") +
+    theme_lares(legend = "top", pal = 2) +
+    scale_x_abbr()
+
+  pw <- (pNRMSE / pIters) +
+    patchwork::plot_annotation(title = "Time-series validation & Convergence") +
+    patchwork::plot_layout(heights = c(2, 1), guides = "collect") &
+    theme_lares(legend = "top")
+  return(pw)
 }

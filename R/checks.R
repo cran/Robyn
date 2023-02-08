@@ -6,6 +6,8 @@
 ############# Auxiliary non-exported functions #############
 
 opts_pnd <- c("positive", "negative", "default")
+other_hyps <- c("lambda", "train_size")
+hyps_name <- c("thetas", "shapes", "scales", "alphas", "gammas")
 
 check_nas <- function(df) {
   name <- deparse(substitute(df))
@@ -18,7 +20,7 @@ check_nas <- function(df) {
       paste(strs, collapse = ", ")
     ))
   }
-  have_inf <- sapply(df, function(x) sum(is.infinite(x)))
+  have_inf <- unlist(lapply(df, function(x) sum(is.infinite(x))))
   if (any(have_inf > 0)) {
     stop(paste0(
       "Dataset ", name, " contains Inf values. ",
@@ -86,10 +88,11 @@ check_datevar <- function(dt_input, date_var = "auto") {
       stop("Can't automatically find a single date variable to set 'date_var'")
     }
   }
-  if (is.null(date_var) | length(date_var) > 1 | !(date_var %in% names(dt_input))) {
+  if (is.null(date_var) || length(date_var) > 1 || !(date_var %in% names(dt_input))) {
     stop("You must provide only 1 correct date variable name for 'date_var'")
   }
   dt_input <- data.frame(arrange(dt_input, as.factor(!!as.symbol(date_var))))
+  dt_input[, date_var] <- as.Date(dt_input[[date_var]], origin = "1970-01-01")
   date_var_dates <- c(
     as.Date(dt_input[, date_var][[1]], origin = "1970-01-01"),
     as.Date(dt_input[, date_var][[2]], origin = "1970-01-01")
@@ -97,7 +100,7 @@ check_datevar <- function(dt_input, date_var = "auto") {
   if (any(table(date_var_dates) > 1)) {
     stop("Date variable shouldn't have duplicated dates (panel data)")
   }
-  if (any(c(is.na(date_var_dates) | is.infinite(date_var_dates)))) {
+  if (any(is.na(date_var_dates)) || any(is.infinite(date_var_dates))) {
     stop("Dates in 'date_var' must have format '2020-12-31' and can't contain NA nor Inf values")
   }
   dayInterval <- as.integer(difftime(
@@ -107,11 +110,9 @@ check_datevar <- function(dt_input, date_var = "auto") {
   ))
   intervalType <- if (dayInterval == 1) {
     "day"
-  } else
-  if (dayInterval == 7) {
+  } else if (dayInterval == 7) {
     "week"
-  } else
-  if (dayInterval %in% 28:31) {
+  } else if (dayInterval %in% 28:31) {
     "month"
   } else {
     stop(paste(date_var, "data has to be daily, weekly or monthly"))
@@ -135,29 +136,31 @@ check_depvar <- function(dt_input, dep_var, dep_var_type) {
   if (length(dep_var) > 1) {
     stop("Must provide only 1 dependent variable name for 'dep_var'")
   }
-  if (!(is.numeric(dt_input[, dep_var][[1]]) | is.integer(dt_input[, dep_var][[1]]))) {
+  if (!(is.numeric(dt_input[, dep_var][[1]]) || is.integer(dt_input[, dep_var][[1]]))) {
     stop("'dep_var' must be a numeric or integer variable")
   }
   if (is.null(dep_var_type)) {
     stop("Must provide a dependent variable type for 'dep_var_type'")
   }
-  if (!dep_var_type %in% c("conversion", "revenue") | length(dep_var_type) != 1) {
+  if (!dep_var_type %in% c("conversion", "revenue") || length(dep_var_type) != 1) {
     stop("'dep_var_type' must be 'conversion' or 'revenue'")
   }
 }
 
 check_prophet <- function(dt_holidays, prophet_country, prophet_vars, prophet_signs, dayInterval) {
-  if (is.null(dt_holidays) | is.null(prophet_vars)) {
+  check_vector(prophet_vars)
+  check_vector(prophet_signs)
+  if (is.null(dt_holidays) || is.null(prophet_vars)) {
     return(invisible(NULL))
   } else {
-    opts <- c("trend", "season", "weekday", "holiday")
+    opts <- c("trend", "season", "monthly", "weekday", "holiday")
     if (!all(prophet_vars %in% opts)) {
       stop("Allowed values for 'prophet_vars' are: ", paste(opts, collapse = ", "))
     }
-    if ("weekday" %in% prophet_vars & dayInterval > 7) {
+    if ("weekday" %in% prophet_vars && dayInterval > 7) {
       warning("Ignoring prophet_vars = 'weekday' input given your data granularity")
     }
-    if (is.null(prophet_country) | length(prophet_country) > 1 |
+    if (is.null(prophet_country) || length(prophet_country) > 1 |
       !prophet_country %in% unique(dt_holidays$country)) {
       stop(paste(
         "You must provide 1 country code in 'prophet_country' input.",
@@ -199,11 +202,19 @@ check_context <- function(dt_input, context_vars, context_signs) {
   }
 }
 
+check_vector <- function(x) {
+  if (!is.null(names(x)) || is.list(x)) {
+    stop(sprintf("Input '%s' must be a valid vector", deparse(substitute(x))))
+  }
+}
+
 check_paidmedia <- function(dt_input, paid_media_vars, paid_media_signs, paid_media_spends) {
   if (is.null(paid_media_spends)) {
     stop("Must provide 'paid_media_spends'")
   }
-
+  check_vector(paid_media_vars)
+  check_vector(paid_media_signs)
+  check_vector(paid_media_spends)
   mediaVarCount <- length(paid_media_vars)
   spendVarCount <- length(paid_media_spends)
 
@@ -227,6 +238,9 @@ check_paidmedia <- function(dt_input, paid_media_vars, paid_media_signs, paid_me
   if (!all(paid_media_signs %in% opts_pnd)) {
     stop("Allowed values for 'paid_media_signs' are: ", paste(opts_pnd, collapse = ", "))
   }
+  if (length(paid_media_signs) == 1) {
+    paid_media_signs <- rep(paid_media_signs, length(paid_media_vars))
+  }
   if (length(paid_media_signs) != length(paid_media_vars)) {
     stop("Input 'paid_media_signs' must have same length as 'paid_media_vars'")
   }
@@ -237,7 +251,7 @@ check_paidmedia <- function(dt_input, paid_media_vars, paid_media_signs, paid_me
   if (get_cols) {
     check_media_names <- unique(c(paid_media_vars, paid_media_spends))
     df_check <- dt_input[, check_media_names]
-    check_media_val <- sapply(df_check, function(x) any(x < 0))
+    check_media_val <- unlist(lapply(df_check, function(x) any(x < 0)))
     stop(
       paste(names(check_media_val)[check_media_val], collapse = ", "),
       " contains negative values. Media must be >=0"
@@ -254,6 +268,8 @@ check_organicvars <- function(dt_input, organic_vars, organic_signs) {
   if (is.null(organic_vars)) {
     return(invisible(NULL))
   }
+  check_vector(organic_vars)
+  check_vector(organic_signs)
   temp <- organic_vars %in% names(dt_input)
   if (!all(temp)) {
     stop(paste(
@@ -261,7 +277,7 @@ check_organicvars <- function(dt_input, organic_vars, organic_signs) {
       v2t(organic_vars[!temp])
     ))
   }
-  if (!is.null(organic_vars) & is.null(organic_signs)) {
+  if (!is.null(organic_vars) && is.null(organic_signs)) {
     organic_signs <- rep("positive", length(organic_vars))
     # message("'organic_signs' were not provided. Using 'positive'")
   }
@@ -274,7 +290,10 @@ check_organicvars <- function(dt_input, organic_vars, organic_signs) {
   return(invisible(list(organic_signs = organic_signs)))
 }
 
-check_factorvars <- function(dt_input, factor_vars, context_vars, organic_vars) {
+check_factorvars <- function(dt_input, factor_vars = NULL, context_vars = NULL, organic_vars = NULL) {
+  check_vector(factor_vars)
+  check_vector(context_vars)
+  check_vector(organic_vars)
   temp <- select(dt_input, all_of(c(context_vars, organic_vars)))
   are_not_numeric <- !sapply(temp, is.numeric)
   if (any(are_not_numeric)) {
@@ -306,6 +325,9 @@ check_datadim <- function(dt_input, all_ind_vars, rel = 10) {
       "There are", length(all_ind_vars), "independent variables &",
       num_obs, "data points.", "We recommend row:column ratio of", rel, "to 1"
     ))
+  }
+  if (ncol(dt_input) <= 2) {
+    stop("Provide a valid 'dt_input' input with at least 3 columns or more")
   }
 }
 
@@ -402,21 +424,31 @@ check_adstock <- function(adstock) {
 
 check_hyperparameters <- function(hyperparameters = NULL, adstock = NULL,
                                   paid_media_spends = NULL, organic_vars = NULL,
-                                  exposure_vars = NULL, quiet = FALSE) {
-  if (is.null(hyperparameters) & !quiet) {
+                                  exposure_vars = NULL) {
+  if (is.null(hyperparameters)) {
     message(paste(
       "Input 'hyperparameters' not provided yet. To include them, run",
       "robyn_inputs(InputCollect = InputCollect, hyperparameters = ...)"
     ))
   } else {
-    hyperparameters <- hyperparameters[which(!names(hyperparameters) %in% "lambda")]
+    if (!"train_size" %in% names(hyperparameters)) {
+      hyperparameters[["train_size"]] <- c(0.5, 0.8)
+      warning("Automatically added missing hyperparameter range: 'train_size' = c(0.5, 0.8)")
+    }
+    # Non-adstock hyperparameters check
+    check_train_size(hyperparameters)
+    # Adstock hyperparameters check
     hyperparameters_ordered <- hyperparameters[order(names(hyperparameters))]
     get_hyp_names <- names(hyperparameters_ordered)
+    original_order <- sapply(names(hyperparameters), function(x) which(x == get_hyp_names))
     ref_hyp_name_spend <- hyper_names(adstock, all_media = paid_media_spends)
     ref_hyp_name_expo <- hyper_names(adstock, all_media = exposure_vars)
     ref_hyp_name_org <- hyper_names(adstock, all_media = organic_vars)
-    ref_all_media <- sort(c(ref_hyp_name_spend, ref_hyp_name_org))
-    all_ref_names <- c(ref_hyp_name_spend, ref_hyp_name_expo, ref_hyp_name_org)
+    ref_hyp_name_other <- get_hyp_names[get_hyp_names %in% other_hyps]
+    # Excluding lambda (first other_hyps) given its range is not customizable
+    ref_all_media <- sort(c(ref_hyp_name_spend, ref_hyp_name_org, other_hyps))
+    all_ref_names <- c(ref_hyp_name_spend, ref_hyp_name_expo, ref_hyp_name_org, other_hyps)
+    all_ref_names <- all_ref_names[order(all_ref_names)]
     if (!all(get_hyp_names %in% all_ref_names)) {
       wrong_hyp_names <- get_hyp_names[which(!(get_hyp_names %in% all_ref_names))]
       stop(
@@ -425,7 +457,7 @@ check_hyperparameters <- function(hyperparameters = NULL, adstock = NULL,
       )
     }
     total <- length(get_hyp_names)
-    total_in <- length(c(ref_hyp_name_spend, ref_hyp_name_org))
+    total_in <- length(c(ref_hyp_name_spend, ref_hyp_name_org, ref_hyp_name_other))
     if (total != total_in) {
       stop(sprintf(
         paste(
@@ -441,15 +473,24 @@ check_hyperparameters <- function(hyperparameters = NULL, adstock = NULL,
       get_hyp_names[get_expo_pos] <- ref_all_media[get_expo_pos]
       names(hyperparameters_ordered) <- get_hyp_names
     }
-    if (!identical(get_hyp_names, ref_all_media)) {
-      stop("Input 'hyperparameters' must contain: ", paste(ref_all_media, collapse = ", "))
-    }
     check_hyper_limits(hyperparameters_ordered, "thetas")
     check_hyper_limits(hyperparameters_ordered, "alphas")
     check_hyper_limits(hyperparameters_ordered, "gammas")
     check_hyper_limits(hyperparameters_ordered, "shapes")
     check_hyper_limits(hyperparameters_ordered, "scales")
-    return(hyperparameters_ordered)
+    hyperparameters_unordered <- hyperparameters_ordered[original_order]
+    return(hyperparameters_unordered)
+  }
+}
+
+check_train_size <- function(hyps) {
+  if ("train_size" %in% names(hyps)) {
+    if (!length(hyps$train_size) %in% 1:2) {
+      stop("Hyperparameter 'train_size' must be length 1 (fixed) or 2 (range)")
+    }
+    if (any(hyps$train_size <= 0.1) || any(hyps$train_size > 1)) {
+      stop("Hyperparameter 'train_size' values must be defined between 0.1 and 1")
+    }
   }
 }
 
@@ -485,23 +526,25 @@ check_calibration <- function(dt_input, date_var, calibration_input, dayInterval
                               window_start, window_end, paid_media_spends, organic_vars) {
   if (!is.null(calibration_input)) {
     calibration_input <- as_tibble(as.data.frame(calibration_input))
-    if (!all(c("channel", "liftStartDate", "liftEndDate", "liftAbs") %in% names(calibration_input))) {
-      stop("Input 'calibration_input' must contain columns 'channel', 'liftStartDate', 'liftEndDate', 'liftAbs'")
+    these <- c("channel", "liftStartDate", "liftEndDate", "liftAbs", "spend", "confidence", "metric", "calibration_scope")
+    if (!all(these %in% names(calibration_input))) {
+      stop("Input 'calibration_input' must contain columns: ", v2t(these), ". Check the demo script for instruction.")
     }
-    if (!is.numeric(calibration_input$liftAbs) | any(is.na(calibration_input$liftAbs))) {
+    if (!is.numeric(calibration_input$liftAbs) || any(is.na(calibration_input$liftAbs))) {
       stop("Check 'calibration_input$liftAbs': all lift values must be valid numerical numbers")
     }
     all_media <- c(paid_media_spends, organic_vars)
-    if (!all(calibration_input$channel %in% all_media)) {
-      these <- unique(calibration_input$channel[which(!calibration_input$channel %in% all_media)])
+    cal_media <- str_split(calibration_input$channel, "\\+|,|;|\\s")
+    if (!all(unlist(cal_media) %in% all_media)) {
+      these <- unique(unlist(cal_media)[which(!unlist(cal_media) %in% all_media)])
       stop(sprintf(
         "All channels from 'calibration_input' must be any of: %s.\n  Check: %s",
         v2t(all_media), v2t(these)
       ))
     }
-    for (i in 1:nrow(calibration_input)) {
+    for (i in seq_along(calibration_input$channel)) {
       temp <- calibration_input[i, ]
-      if (temp$liftStartDate < (window_start) | temp$liftEndDate > (window_end)) {
+      if (temp$liftStartDate < (window_start) || temp$liftEndDate > (window_end)) {
         stop(sprintf(
           paste(
             "Your calibration's date range for %s between %s and %s is not within modeling window (%s to %s).",
@@ -510,10 +553,10 @@ check_calibration <- function(dt_input, date_var, calibration_input, dayInterval
           temp$channel, temp$liftStartDate, temp$liftEndDate, window_start, window_end
         ))
       }
-      if (temp$liftStartDate >= temp$liftEndDate) {
+      if (temp$liftStartDate > temp$liftEndDate) {
         stop(sprintf(
           paste(
-            "Your calibration's date range for %s between %s and %s should respect liftStartDate < liftEndDate.",
+            "Your calibration's date range for %s between %s and %s should respect liftStartDate <= liftEndDate.",
             "Please, correct this experiment from 'calibration_input'."
           ),
           temp$channel, temp$liftStartDate, temp$liftEndDate
@@ -521,17 +564,18 @@ check_calibration <- function(dt_input, date_var, calibration_input, dayInterval
       }
     }
     if ("spend" %in% colnames(calibration_input)) {
-      for (i in 1:nrow(calibration_input)) {
+      for (i in seq_along(calibration_input$channel)) {
         temp <- calibration_input[i, ]
-        if (temp$channel %in% organic_vars) next
+        temp2 <- cal_media[[i]]
+        if (all(temp2 %in% organic_vars)) next
         dt_input_spend <- filter(
           dt_input, get(date_var) >= temp$liftStartDate,
           get(date_var) <= temp$liftEndDate
         ) %>%
-          pull(get(temp$channel)) %>%
+          select(all_of(temp2)) %>%
           sum(.) %>%
           round(., 0)
-        if (dt_input_spend > temp$spend * 1.1 | dt_input_spend < temp$spend * 0.9) {
+        if (dt_input_spend > temp$spend * 1.1 || dt_input_spend < temp$spend * 0.9) {
           warning(sprintf(
             paste(
               "Your calibration's spend (%s) for %s between %s and %s does not match your dt_input spend (~%s).",
@@ -544,7 +588,7 @@ check_calibration <- function(dt_input, date_var, calibration_input, dayInterval
       }
     }
     if ("confidence" %in% colnames(calibration_input)) {
-      for (i in 1:nrow(calibration_input)) {
+      for (i in seq_along(calibration_input$channel)) {
         temp <- calibration_input[i, ]
         if (temp$confidence < 0.8) {
           warning(sprintf(
@@ -558,7 +602,7 @@ check_calibration <- function(dt_input, date_var, calibration_input, dayInterval
       }
     }
     if ("metric" %in% colnames(calibration_input)) {
-      for (i in 1:nrow(calibration_input)) {
+      for (i in seq_along(calibration_input$channel)) {
         temp <- calibration_input[i, ]
         if (temp$metric != dep_var) {
           stop(sprintf(
@@ -571,6 +615,12 @@ check_calibration <- function(dt_input, date_var, calibration_input, dayInterval
         }
       }
     }
+    if ("scope" %in% colnames(calibration_input)) {
+      these <- c("immediate", "total")
+      if (!all(calibration_input$scope %in% these)) {
+        stop("Inputs in 'calibration_input$scope' must be any of: ", v2t(these))
+      }
+    }
   }
   return(calibration_input)
 }
@@ -578,9 +628,9 @@ check_calibration <- function(dt_input, date_var, calibration_input, dayInterval
 check_iteration <- function(calibration_input, iterations, trials, hyps_fixed, refresh) {
   if (!refresh) {
     if (!hyps_fixed) {
-      if (is.null(calibration_input) & (iterations < 2000 | trials < 5)) {
+      if (is.null(calibration_input) && (iterations < 2000 || trials < 5)) {
         warning("We recommend to run at least 2000 iterations per trial and 5 trials to build initial model")
-      } else if (!is.null(calibration_input) & (iterations < 2000 | trials < 10)) {
+      } else if (!is.null(calibration_input) && (iterations < 2000 || trials < 10)) {
         warning(paste(
           "You are calibrating MMM. We recommend to run at least 2000 iterations per trial and",
           "10 trials to build initial model"
@@ -624,7 +674,7 @@ check_robyn_name <- function(robyn_object, quiet = FALSE) {
   }
 }
 
-check_filedir <- function(plot_folder) {
+check_dir <- function(plot_folder) {
   file_end <- substr(plot_folder, nchar(plot_folder) - 3, nchar(plot_folder))
   if (file_end == ".RDS") {
     plot_folder <- dirname(plot_folder)
@@ -634,13 +684,13 @@ check_filedir <- function(plot_folder) {
   }
   if (!dir.exists(plot_folder)) {
     plot_folder <- getwd()
-    message("Provided 'plot_folder' doesn't exist. Using current working directory: ", plot_folder)
+    message("WARNING: Provided 'plot_folder' doesn't exist. Using current working directory: ", plot_folder)
   }
   return(plot_folder)
 }
 
-check_calibconstr <- function(calibration_constraint, iterations, trials, calibration_input) {
-  if (!is.null(calibration_input)) {
+check_calibconstr <- function(calibration_constraint, iterations, trials, calibration_input, refresh) {
+  if (!is.null(calibration_input) & !refresh) {
     total_iters <- iterations * trials
     if (calibration_constraint < 0.01 || calibration_constraint > 0.1) {
       message("Input 'calibration_constraint' must be >= 0.01 and <= 0.1. Changed to default: 0.1")
@@ -664,6 +714,15 @@ check_calibconstr <- function(calibration_constraint, iterations, trials, calibr
 
 check_hyper_fixed <- function(InputCollect, dt_hyper_fixed, add_penalty_factor) {
   hyper_fixed <- !is.null(dt_hyper_fixed)
+  # Adstock hyper-parameters
+  hypParamSamName <- hyper_names(adstock = InputCollect$adstock, all_media = InputCollect$all_media)
+  # Add lambda and other hyper-parameters manually
+  hypParamSamName <- c(hypParamSamName, other_hyps)
+  # Add penalty factor hyper-parameters names
+  if (add_penalty_factor) {
+    for_penalty <- names(select(InputCollect$dt_mod, -.data$ds, -.data$dep_var))
+    hypParamSamName <- c(hypParamSamName, paste0(for_penalty, "_penalty"))
+  }
   if (hyper_fixed) {
     ## Run robyn_mmm if using old model result tables
     dt_hyper_fixed <- as_tibble(dt_hyper_fixed)
@@ -673,19 +732,16 @@ check_hyper_fixed <- function(InputCollect, dt_hyper_fixed, add_penalty_factor) 
         "pareto_hyperparameters.csv from previous runs"
       ))
     }
-    hypParamSamName <- hyper_names(adstock = InputCollect$adstock, all_media = InputCollect$all_media)
-    hypParamSamName <- c(hypParamSamName, "lambda")
-    for_penalty <- names(select(InputCollect$dt_mod, -.data$ds, -.data$dep_var))
-    if (add_penalty_factor) hypParamSamName <- c(hypParamSamName, paste0("penalty_", for_penalty))
-
     if (!all(hypParamSamName %in% names(dt_hyper_fixed))) {
+      these <- hypParamSamName[!hypParamSamName %in% names(dt_hyper_fixed)]
       stop(paste(
         "Input 'dt_hyper_fixed' is invalid.",
         "Please provide 'OutputCollect$resultHypParam' result from previous runs or",
-        "'pareto_hyperparameters.csv' data with desired model ID"
+        "'pareto_hyperparameters.csv' data with desired model ID. Missing values for:", v2t(these)
       ))
     }
   }
+  attr(hyper_fixed, "hypParamSamName") <- hypParamSamName
   return(hyper_fixed)
 }
 
@@ -702,10 +758,14 @@ check_init_msg <- function(InputCollect, cores) {
     "Using", InputCollect$adstock, "adstocking with",
     length(InputCollect$hyper_updated), "hyperparameters", det
   )
-  if (check_parallel()) {
-    message(paste(base, "on", cores, "cores"))
+  if (cores == 1) {
+    message(paste(base, "with no parallel computation"))
   } else {
-    message(paste(base, "on 1 core (Windows fallback)"))
+    if (check_parallel()) {
+      message(paste(base, "on", cores, "cores"))
+    } else {
+      message(paste(base, "on 1 core (Windows fallback)"))
+    }
   }
 }
 
@@ -737,13 +797,13 @@ check_allocator <- function(OutputCollect, select_model, paid_media_spends, scen
     stop("Input 'scenario' must be one of: ", paste(opts, collapse = ", "))
   }
 
-  if (length(channel_constr_low) != 1 & length(channel_constr_low) != length(paid_media_spends)) {
+  if (length(channel_constr_low) != 1 && length(channel_constr_low) != length(paid_media_spends)) {
     stop(paste(
       "Input 'channel_constr_low' have to contain either only 1",
       "value or have same length as 'InputCollect$paid_media_spends':", length(paid_media_spends)
     ))
   }
-  if (length(channel_constr_up) != 1 & length(channel_constr_up) != length(paid_media_spends)) {
+  if (length(channel_constr_up) != 1 && length(channel_constr_up) != length(paid_media_spends)) {
     stop(paste(
       "Input 'channel_constr_up' have to contain either only 1",
       "value or have same length as 'InputCollect$paid_media_spends':", length(paid_media_spends)
@@ -786,7 +846,7 @@ check_legacy_input <- function(InputCollect,
   } # Legacy check
   # Warn the user these InputCollect params will be (are) deprecated
   legacyValues <- InputCollect[LEGACY_PARAMS]
-  legacyValues <- legacyValues[!sapply(legacyValues, is.null)]
+  legacyValues <- legacyValues[!unlist(lapply(legacyValues, is.null))]
   if (length(legacyValues) > 0) {
     warning(sprintf(
       "Using legacy InputCollect values. Please set %s within robyn_run() instead",

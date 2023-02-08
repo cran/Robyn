@@ -42,8 +42,10 @@
 #' Prophet holidays using \code{data("dt_prophet_holidays")}.
 #' @param refresh_steps Integer. It controls how many time units the refresh
 #' model build move forward. For example, \code{refresh_steps = 4} on weekly data
-#' means the InputCollect$window_start & InputCollect$window_end move forward
-#' 4 weeks.
+#' means the \code{InputCollect$window_start} & \code{InputCollect$window_end}
+#' move forward 4 weeks. If \code{refresh_steps} is smaller than the number of
+#' newly provided data points, then Robyn would only use the first N steps of the
+#' new data.
 #' @param refresh_mode Character. Options are "auto" and "manual". In auto mode,
 #' the \code{robyn_refresh()} function builds refresh models with given
 #' \code{refresh_steps} repeatedly until there's no more data available. I
@@ -98,11 +100,11 @@ robyn_refresh <- function(json_file = NULL,
                           robyn_object = NULL,
                           dt_input = NULL,
                           dt_holidays = Robyn::dt_prophet_holidays,
-                          plot_folder_sub = NULL,
                           refresh_steps = 4,
                           refresh_mode = "manual",
                           refresh_iters = 1000,
                           refresh_trials = 3,
+                          plot_folder = NULL,
                           plot_pareto = TRUE,
                           version_prompt = FALSE,
                           export = TRUE,
@@ -110,7 +112,6 @@ robyn_refresh <- function(json_file = NULL,
                           ...) {
   refreshControl <- TRUE
   while (refreshControl) {
-
     ## Check for NA values
     check_nas(dt_input)
     check_nas(dt_holidays)
@@ -119,12 +120,12 @@ robyn_refresh <- function(json_file = NULL,
     if (!is.null(json_file)) {
       Robyn <- list()
       json <- robyn_read(json_file, step = 2, quiet = TRUE)
-      listInit <- robyn_recreate(
+      listInit <- suppressWarnings(robyn_recreate(
         json_file = json_file,
         dt_input = dt_input,
         dt_holidays = dt_holidays,
         quiet = FALSE, ...
-      )
+      ))
       listInit$InputCollect$refreshSourceID <- json$ExportedModel$select_model
       chainData <- robyn_chain(json_file)
       listInit$InputCollect$refreshChain <- attr(chainData, "chain")
@@ -145,7 +146,7 @@ robyn_refresh <- function(json_file = NULL,
     depth <- ifelse(!is.null(refreshDepth), refreshDepth, refreshCounter)
 
     objectCheck <- if (refreshCounter == 1) {
-      c("listInit")
+      "listInit"
     } else {
       c("listInit", paste0("listRefresh", 1:(refreshCounter - 1)))
     }
@@ -205,23 +206,19 @@ robyn_refresh <- function(json_file = NULL,
 
     ## Refresh rolling window
     if (TRUE) {
-      totalDates <- as.Date(dt_input[, InputCollectRF$date_var][[1]])
-      refreshStart <- as.Date(InputCollectRF$window_start) + InputCollectRF$dayInterval * refresh_steps
-      refreshEnd <- as.Date(InputCollectRF$window_end) + InputCollectRF$dayInterval * refresh_steps
       InputCollectRF$refreshAddedStart <- as.Date(InputCollectRF$window_end) + InputCollectRF$dayInterval
-      InputCollectRF$window_start <- refreshStart
-      InputCollectRF$window_end <- refreshEnd
-      refreshStartWhich <- which.min(abs(difftime(totalDates, as.Date(refreshStart), units = "days")))
-      refreshEndWhich <- which.min(abs(difftime(totalDates, as.Date(refreshEnd), units = "days")))
-      InputCollectRF$rollingWindowStartWhich <- refreshStartWhich
-      InputCollectRF$rollingWindowEndWhich <- refreshEndWhich
+      totalDates <- as.Date(dt_input[, InputCollectRF$date_var][[1]])
+      refreshStart <- InputCollectRF$window_start <- as.Date(InputCollectRF$window_start) + InputCollectRF$dayInterval * refresh_steps
+      refreshStartWhich <- InputCollectRF$rollingWindowStartWhich <- which.min(abs(difftime(totalDates, refreshStart, units = "days")))
+      refreshEnd <- InputCollectRF$window_end <- as.Date(InputCollectRF$window_end) + InputCollectRF$dayInterval * refresh_steps
+      refreshEndWhich <- InputCollectRF$rollingWindowEndWhich <- which.min(abs(difftime(totalDates, refreshEnd, units = "days")))
       InputCollectRF$rollingWindowLength <- refreshEndWhich - refreshStartWhich + 1
     }
 
     if (refreshEnd > max(totalDates)) {
       stop("Not enough data for this refresh. Input data from date ", refreshEnd, " or later required")
     }
-    if (!is.null(json_file) & refresh_mode == "auto") {
+    if (!is.null(json_file) && refresh_mode == "auto") {
       message("Input 'refresh_mode' = 'auto' has been deprecated. Changed to 'manual'")
       refresh_mode <- "manual"
     }
@@ -243,7 +240,11 @@ robyn_refresh <- function(json_file = NULL,
     ## Calibration new data
     if (!is.null(calibration_input)) {
       calibration_input <- bind_rows(
-        InputCollectRF$calibration_input, calibration_input
+        InputCollectRF$calibration_input %>%
+          mutate(
+            liftStartDate = as.Date(.data$liftStartDate),
+            liftEndDate = as.Date(.data$liftEndDate)
+          ), calibration_input
       ) %>% distinct()
       ## Check calibration data
       calibration_input <- check_calibration(
@@ -274,11 +275,15 @@ robyn_refresh <- function(json_file = NULL,
 
     ## Refresh model with adjusted decomp.rssd
     # OutputCollectRF <- Robyn$listRefresh1$OutputCollect
+    if (is.null(InputCollectRF$calibration_input)) {
+      rf_cal_constr <- listOutputPrev[["calibration_constraint"]]
+    } else {
+      rf_cal_constr <- 1
+    }
     OutputCollectRF <- robyn_run(
       InputCollect = InputCollectRF,
       plot_folder = objectPath,
-      plot_folder_sub = plot_folder_sub,
-      calibration_constraint = listOutputPrev[["calibration_constraint"]],
+      calibration_constraint = rf_cal_constr,
       add_penalty_factor = listOutputPrev[["add_penalty_factor"]],
       iterations = refresh_iters,
       trials = refresh_trials,
@@ -509,13 +514,13 @@ Models (IDs):
 plot.robyn_refresh <- function(x, ...) plot((x$refresh$plots[[1]] / x$refresh$plots[[2]]), ...)
 
 refresh_hyps <- function(initBounds, listOutputPrev, refresh_steps, rollingWindowLength) {
-  initBoundsDis <- sapply(initBounds, function(x) ifelse(length(x) == 2, x[2] - x[1], 0))
+  initBoundsDis <- unlist(lapply(initBounds, function(x) ifelse(length(x) == 2, x[2] - x[1], 0)))
   newBoundsFreedom <- refresh_steps / rollingWindowLength
   message(">>> New bounds freedom: ", round(100 * newBoundsFreedom, 2), "%")
   hyper_updated_prev <- listOutputPrev$hyper_updated
   hypNames <- names(hyper_updated_prev)
   resultHypParam <- as_tibble(listOutputPrev$resultHypParam)
-  for (h in 1:length(hypNames)) {
+  for (h in seq_along(hypNames)) {
     hn <- hypNames[h]
     getHyp <- resultHypParam[, hn][[1]]
     getDis <- initBoundsDis[hn]

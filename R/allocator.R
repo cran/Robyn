@@ -114,7 +114,6 @@ robyn_allocator <- function(robyn_object = NULL,
                             quiet = FALSE,
                             ui = FALSE,
                             ...) {
-
   #####################################
   #### Set local environment
 
@@ -130,7 +129,7 @@ robyn_allocator <- function(robyn_object = NULL,
   }
 
   ## Collect inputs
-  if (!is.null(robyn_object) & (is.null(InputCollect) & is.null(OutputCollect))) {
+  if (!is.null(robyn_object) && (is.null(InputCollect) && is.null(OutputCollect))) {
     if ("robyn_exported" %in% class(robyn_object)) {
       imported <- robyn_object
       robyn_object <- imported$robyn_object
@@ -260,7 +259,7 @@ robyn_allocator <- function(robyn_object = NULL,
     histResponseUnitModel <- c(histResponseUnitModel, val)
   }
   names(histResponseUnitModel) <- mediaSpendSortedFiltered
-  if (!is.null(noSpendMedia) & !quiet) {
+  if (!is.null(noSpendMedia) && !quiet) {
     message("Media variables with 0 spending during this date window: ", v2t(noSpendMedia))
   }
 
@@ -450,7 +449,6 @@ Allocation Summary:
 plot.robyn_allocator <- function(x, ...) plot(x$plots$plots, ...)
 
 eval_f <- function(X) {
-
   # eval_list <- get("eval_list", pos = as.environment(-1))
   eval_list <- getOption("ROBYN_TEMP")
   # mm_lm_coefs <- eval_list[["mm_lm_coefs"]]

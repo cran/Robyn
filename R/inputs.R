@@ -113,6 +113,8 @@
 #' calibrate. Your input should include the following values for each experiment:
 #' channel, liftStartDate, liftEndDate, liftAbs, spend, confidence, metric.
 #' You can calibrate any spend or organic variable with a well designed experiment.
+#' You can also use experimental results from multiple channels; to do so,
+#' provide concatenated channel value, i.e. "channel_A+channel_B".
 #' Check "Guide for calibration source" section.
 #' @param InputCollect Default to NULL. \code{robyn_inputs}'s output when
 #' \code{hyperparameters} are not yet set.
@@ -132,8 +134,8 @@
 #'   context_vars = c("competitor_sales_B", "events"),
 #'   paid_media_spends = c("tv_S", "ooh_S", "print_S", "facebook_S", "search_S"),
 #'   paid_media_vars = c("tv_S", "ooh_S", "print_S", "facebook_I", "search_clicks_P"),
-#'   organic_vars = c("newsletter"),
-#'   factor_vars = c("events"),
+#'   organic_vars = "newsletter",
+#'   factor_vars = "events",
 #'   window_start = "2016-11-23",
 #'   window_end = "2018-08-22",
 #'   adstock = "geometric",
@@ -171,12 +173,11 @@ robyn_inputs <- function(dt_input = NULL,
                          json_file = NULL,
                          InputCollect = NULL,
                          ...) {
-
   ### Use case 3: running robyn_inputs() with json_file
   if (!is.null(json_file)) {
     json <- robyn_read(json_file, step = 1, ...)
-    if (is.null(dt_input) | is.null(dt_holidays)) stop("Provide 'dt_input' and 'dt_holidays'")
-    for (i in 1:length(json$InputCollect)) {
+    if (is.null(dt_input) || is.null(dt_holidays)) stop("Provide 'dt_input' and 'dt_holidays'")
+    for (i in seq_along(json$InputCollect)) {
       assign(names(json$InputCollect)[i], json$InputCollect[[i]])
     }
   }
@@ -211,7 +212,7 @@ robyn_inputs <- function(dt_input = NULL,
     check_depvar(dt_input, dep_var, dep_var_type)
 
     ## Check prophet
-    if (is.null(dt_holidays) | is.null(prophet_vars)) {
+    if (is.null(dt_holidays) || is.null(prophet_vars)) {
       dt_holidays <- prophet_vars <- prophet_country <- prophet_signs <- NULL
     }
     prophet_signs <- check_prophet(dt_holidays, prophet_country, prophet_vars, prophet_signs, dayInterval)
@@ -257,11 +258,6 @@ robyn_inputs <- function(dt_input = NULL,
 
     ## Check adstock
     adstock <- check_adstock(adstock)
-
-    ## Check hyperparameters (if passed)
-    hyperparameters <- check_hyperparameters(
-      hyperparameters, adstock, paid_media_spends, organic_vars, exposure_vars
-    )
 
     ## Check calibration and iters/trials
     calibration_input <- check_calibration(
@@ -320,6 +316,11 @@ robyn_inputs <- function(dt_input = NULL,
     if (!is.null(hyperparameters)) {
       ### Conditional output 1.2
       ## Running robyn_inputs() for the 1st time & 'hyperparameters' provided --> run robyn_engineering()
+
+      ## Check hyperparameters
+      hyperparameters <- check_hyperparameters(
+        hyperparameters, adstock, paid_media_spends, organic_vars, exposure_vars
+      )
       InputCollect <- robyn_engineering(InputCollect, ...)
     }
   } else {
@@ -343,14 +344,16 @@ robyn_inputs <- function(dt_input = NULL,
     ## Update calibration_input
     if (!is.null(calibration_input)) InputCollect$calibration_input <- calibration_input
     if (!is.null(hyperparameters)) InputCollect$hyperparameters <- hyperparameters
-    if (is.null(InputCollect$hyperparameters) & is.null(hyperparameters)) {
+    if (is.null(InputCollect$hyperparameters) && is.null(hyperparameters)) {
       stop("Must provide hyperparameters in robyn_inputs()")
     } else {
       ### Conditional output 2.1
       ## 'hyperparameters' provided --> run robyn_engineering()
       ## Update & check hyperparameters
       if (is.null(InputCollect$hyperparameters)) InputCollect$hyperparameters <- hyperparameters
-      check_hyperparameters(InputCollect$hyperparameters, InputCollect$adstock, InputCollect$all_media)
+      InputCollect$hyperparameters <- check_hyperparameters(
+        InputCollect$hyperparameters, InputCollect$adstock, InputCollect$all_media
+      )
       InputCollect <- robyn_engineering(InputCollect, ...)
     }
   }
@@ -417,7 +420,7 @@ Adstock: {x$adstock}
     },
     hyps = if (!is.null(x$hyperparameters)) {
       glued(
-        "Hyper-parameters for channel transformations:\n{flatten_hyps(x$hyperparameters)}"
+        "Hyper-parameters ranges:\n{flatten_hyps(x$hyperparameters)}"
       )
     } else {
       paste("Hyper-parameters:", "\033[0;31mNot set yet\033[0m")
@@ -437,7 +440,7 @@ Adstock: {x$adstock}
 #'  \enumerate{
 #'    \item Get correct hyperparameter names:
 #'    All variables in \code{paid_media_vars} or \code{organic_vars} require hyperprameters
-#'    and will be transformed by adstock & saturation. Difference between \code{organic_vars}
+#'    and will be transformed by adstock & saturation. Difference between \code{paid_media_vars}
 #'    and \code{organic_vars} is that \code{paid_media_vars} has spend that
 #'    needs to be specified in \code{paid_media_spends} specifically. Run \code{hyper_names()}
 #'    to get correct hyperparameter names. All names in hyperparameters must
@@ -513,11 +516,14 @@ Adstock: {x$adstock}
 #' @export
 hyper_names <- function(adstock, all_media) {
   adstock <- check_adstock(adstock)
-  global_name <- c("thetas", "shapes", "scales", "alphas", "gammas", "lambdas")
   if (adstock == "geometric") {
-    local_name <- sort(apply(expand.grid(all_media, global_name[grepl("thetas|alphas|gammas", global_name)]), 1, paste, collapse = "_"))
+    local_name <- sort(apply(expand.grid(all_media, hyps_name[
+      grepl("thetas|alphas|gammas", hyps_name)
+    ]), 1, paste, collapse = "_"))
   } else if (adstock %in% c("weibull_cdf", "weibull_pdf")) {
-    local_name <- sort(apply(expand.grid(all_media, global_name[grepl("shapes|scales|alphas|gammas", global_name)]), 1, paste, collapse = "_"))
+    local_name <- sort(apply(expand.grid(all_media, hyps_name[
+      grepl("shapes|scales|alphas|gammas", hyps_name)
+    ]), 1, paste, collapse = "_"))
   }
   return(local_name)
 }
@@ -538,7 +544,7 @@ hyper_limits <- function() {
     thetas = c(">=0", "<1"),
     alphas = c(">0", "<10"),
     gammas = c(">0", "<=1"),
-    shapes = c(">0", "<20"),
+    shapes = c(">=0", "<20"),
     scales = c(">=0", "<=1")
   )
 }
@@ -618,7 +624,7 @@ robyn_engineering <- function(x, quiet = FALSE, ...) {
         dt_plotNLS <- dt_plotNLS %>%
           pivot_longer(
             cols = c("yhatNLS", "yhatLM"),
-            names_to = c("models"), values_to = "yhat"
+            names_to = "models", values_to = "yhat"
           ) %>%
           mutate(models = str_remove(tolower(.data$models), "yhat"))
         models_plot <- ggplot(
@@ -651,7 +657,7 @@ robyn_engineering <- function(x, quiet = FALSE, ...) {
   }
 
   # Give recommendations and show warnings
-  if (!is.null(modNLSCollect) & !quiet) {
+  if (!is.null(modNLSCollect) && !quiet) {
     threshold <- 0.80
     final_print <- these <- NULL # TRUE if we accumulate a common message
     metrics <- c("R2 (nls)", "R2 (lm)")
@@ -659,12 +665,12 @@ robyn_engineering <- function(x, quiet = FALSE, ...) {
     for (m in seq_along(metrics)) {
       temp <- which(modNLSCollect[[names(metrics)[m]]] < threshold)
       if (length(temp) > 0) {
-        warning(sprintf(
-          "%s: weak relationship for %s and %s spend",
-          metrics[m],
-          v2t(modNLSCollect$channel[temp], and = "and"),
-          ifelse(length(temp) > 1, "their", "its")
-        ))
+        # warning(sprintf(
+        #   "%s: weak relationship for %s and %s spend",
+        #   metrics[m],
+        #   v2t(modNLSCollect$channel[temp], and = "and"),
+        #   ifelse(length(temp) > 1, "their", "its")
+        # ))
         final_print <- TRUE
         these <- modNLSCollect$channel[temp]
       }
@@ -676,7 +682,7 @@ robyn_engineering <- function(x, quiet = FALSE, ...) {
           "Threshold (Minimum R2) =", threshold,
           "\n  Check: InputCollect$plotNLSCollect outputs"
         ),
-        "\n  Check data on: ", v2t(these)
+        "\n  Weak relationship for: ", v2t(these), "and their spend"
       )
     }
   }
@@ -708,9 +714,9 @@ robyn_engineering <- function(x, quiet = FALSE, ...) {
       c("", "...")
     )
     prophet_custom_args <- setdiff(names(custom_params), robyn_args)
-    if (length(prophet_custom_args) > 0) {
-      message(paste("Using custom prophet parameters:", paste(prophet_custom_args, collapse = ", ")))
-    }
+    # if (length(prophet_custom_args) > 0) {
+    #   message(paste("Using custom prophet parameters:", paste(prophet_custom_args, collapse = ", ")))
+    # }
 
     dt_transform <- prophet_decomp(
       dt_transform,
@@ -768,6 +774,7 @@ prophet_decomp <- function(dt_transform, dt_holidays,
   use_trend <- "trend" %in% prophet_vars
   use_holiday <- "holiday" %in% prophet_vars
   use_season <- "season" %in% prophet_vars | "yearly.seasonality" %in% prophet_vars
+  use_monthly <- "monthly" %in% prophet_vars
   use_weekday <- "weekday" %in% prophet_vars | "weekly.seasonality" %in% prophet_vars
 
   dt_regressors <- bind_cols(recurrence, select(
@@ -787,8 +794,15 @@ prophet_decomp <- function(dt_transform, dt_holidays,
     ),
     daily.seasonality = FALSE # No hourly models allowed
   )
+  custom_params$yearly.seasonality <- custom_params$weekly.seasonality <- NULL
   prophet_params <- append(prophet_params, custom_params)
   modelRecurrence <- do.call(prophet, as.list(prophet_params))
+  if (use_monthly) {
+    modelRecurrence <- add_seasonality(
+      modelRecurrence,
+      name = "monthly", period = 30.5, fourier.order = 5
+    )
+  }
 
   # dt_regressors <<- dt_regressors
   # modelRecurrence <<- modelRecurrence
@@ -810,23 +824,22 @@ prophet_decomp <- function(dt_transform, dt_holidays,
       dt_transform[, aggreg] <- scale(get_reg, center = min(get_reg), scale = FALSE)
     }
   } else {
+    if (dayInterval == 1) {
+      warning(
+        "Currently, there's a known issue with prophet that may crash this use case.",
+        "\n Read more here: https://github.com/facebookexperimental/Robyn/issues/472"
+      )
+    }
     mod <- fit.prophet(modelRecurrence, dt_regressors)
     forecastRecurrence <- predict(mod, dt_regressors)
   }
 
-  if (use_trend) {
-    dt_transform$trend <- forecastRecurrence$trend[1:nrow(recurrence)]
-  }
-  if (use_season) {
-    dt_transform$season <- forecastRecurrence$yearly[1:nrow(recurrence)]
-  }
-  if (use_weekday) {
-    dt_transform$weekday <- forecastRecurrence$weekly[1:nrow(recurrence)]
-  }
-  if (use_holiday) {
-    dt_transform$holiday <- forecastRecurrence$holidays[1:nrow(recurrence)]
-  }
-
+  these <- seq_along(unlist(recurrence[, 1]))
+  if (use_trend) dt_transform$trend <- forecastRecurrence$trend[these]
+  if (use_season) dt_transform$season <- forecastRecurrence$yearly[these]
+  if (use_monthly) dt_transform$monthly <- forecastRecurrence$monthly[these]
+  if (use_weekday) dt_transform$weekday <- forecastRecurrence$weekly[these]
+  if (use_holiday) dt_transform$holiday <- forecastRecurrence$holidays[these]
   return(dt_transform)
 }
 
@@ -887,14 +900,14 @@ fit_spend_exposure <- function(dt_spendModInput, mediaCostFactor, paid_media_var
   modLMSum <- summary(modLM)
   rsq_lm <- modLMSum$adj.r.squared
   if (is.na(rsq_lm)) stop("Please check if ", paid_media_var, " contains only 0s")
-  if (max(rsq_lm, rsq_nls) < 0.7) {
-    warning(paste(
-      "Spend-exposure fitting for", paid_media_var,
-      "has rsq = ", round(max(rsq_lm, rsq_nls), 4),
-      "To increase the fit, try splitting the variable.",
-      "Otherwise consider using spend instead."
-    ))
-  }
+  # if (max(rsq_lm, rsq_nls) < 0.7) {
+  #   warning(paste(
+  #     "Spend-exposure fitting for", paid_media_var,
+  #     "has rsq = ", round(max(rsq_lm, rsq_nls), 4),
+  #     "To increase the fit, try splitting the variable.",
+  #     "Otherwise consider using spend instead."
+  #   ))
+  # }
 
   output <- list(
     res = data.frame(

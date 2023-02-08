@@ -139,6 +139,8 @@ used for media, organic and context variables.}
 calibrate. Your input should include the following values for each experiment:
 channel, liftStartDate, liftEndDate, liftAbs, spend, confidence, metric.
 You can calibrate any spend or organic variable with a well designed experiment.
+You can also use experimental results from multiple channels; to do so,
+provide concatenated channel value, i.e. "channel_A+channel_B".
 Check "Guide for calibration source" section.}
 
 \item{json_file}{Character. JSON file to import previously exported inputs
@@ -195,8 +197,8 @@ InputCollect <- robyn_inputs(
   context_vars = c("competitor_sales_B", "events"),
   paid_media_spends = c("tv_S", "ooh_S", "print_S", "facebook_S", "search_S"),
   paid_media_vars = c("tv_S", "ooh_S", "print_S", "facebook_I", "search_clicks_P"),
-  organic_vars = c("newsletter"),
-  factor_vars = c("events"),
+  organic_vars = "newsletter",
+  factor_vars = "events",
   window_start = "2016-11-23",
   window_end = "2018-08-22",
   adstock = "geometric",

@@ -5,15 +5,16 @@
 \alias{print.robyn_outputs}
 \alias{robyn_csv}
 \alias{robyn_plots}
+\alias{robyn_onepagers}
+\alias{ts_validation}
 \title{Evaluate Models and Output Results into Local Files}
 \usage{
 robyn_outputs(
   InputCollect,
   OutputModels,
-  pareto_fronts = 3,
+  pareto_fronts = "auto",
   calibration_constraint = 0.1,
   plot_folder = NULL,
-  plot_folder_sub = NULL,
   plot_pareto = TRUE,
   csv_out = "pareto",
   clusters = TRUE,
@@ -21,14 +22,31 @@ robyn_outputs(
   ui = FALSE,
   export = TRUE,
   quiet = FALSE,
+  refresh = FALSE,
   ...
 )
 
 \method{print}{robyn_outputs}(x, ...)
 
-robyn_csv(InputCollect, OutputCollect, csv_out = NULL, export = TRUE)
+robyn_csv(
+  InputCollect,
+  OutputCollect,
+  csv_out = NULL,
+  export = TRUE,
+  calibrated = FALSE
+)
 
-robyn_plots(InputCollect, OutputCollect, export = TRUE)
+robyn_plots(InputCollect, OutputCollect, export = TRUE, ...)
+
+robyn_onepagers(
+  InputCollect,
+  OutputCollect,
+  select_model = NULL,
+  quiet = FALSE,
+  export = TRUE
+)
+
+ts_validation(OutputModels, quiet = FALSE, ...)
 }
 \arguments{
 \item{InputCollect, OutputModels}{\code{robyn_inputs()} and \code{robyn_run()}
@@ -36,7 +54,9 @@ outcomes.}
 
 \item{pareto_fronts}{Integer. Number of Pareto fronts for the output.
 \code{pareto_fronts = 1} returns the best models trading off \code{NRMSE} &
-\code{DECOMP.RSSD}. Increase \code{pareto_fronts} to get more model choices.}
+\code{DECOMP.RSSD}. Increase \code{pareto_fronts} to get more model choices.
+\code{pareto_fronts = "auto"} selects the min fronts that include at least 100
+candidates. To customize this threshold, set value with \code{min_candidates}.}
 
 \item{calibration_constraint}{Numeric. Default to 0.1 and allows 0.01-0.1. When
 calibrating, 0.1 means top 10% calibrated models are used for pareto-optimal
@@ -44,10 +64,6 @@ selection. Lower \code{calibration_constraint} increases calibration accuracy.}
 
 \item{plot_folder}{Character. Path for saving plots. Default
 to \code{robyn_object} and saves plot in the same directory as \code{robyn_object}.}
-
-\item{plot_folder_sub}{Character. Customize sub path to save plots. The total
-path is created with \code{dir.create(file.path(plot_folder, plot_folder_sub))}.
-For example, plot_folder_sub = "sub_dir".}
 
 \item{plot_pareto}{Boolean. Set to \code{FALSE} to deactivate plotting
 and saving model one-pagers. Used when testing models.}
@@ -67,11 +83,15 @@ wish to plot the one-pagers and export? Default will take top
 
 \item{quiet}{Boolean. Keep messages off?}
 
+\item{refresh}{Boolean. Refresh mode}
+
 \item{...}{Additional parameters passed to \code{robyn_clusters()}}
 
 \item{x}{\code{robyn_outputs()} output.}
 
 \item{OutputCollect}{\code{robyn_run(..., export = FALSE)} output.}
+
+\item{calibrated}{Logical}
 }
 \value{
 (Invisible) list. Class: \code{robyn_outputs}. Contains processed
@@ -80,9 +100,18 @@ results based on \code{robyn_run()} results.
 Invisible \code{NULL}.
 
 Invisible list with \code{ggplot} plots.
+
+Invisible list with \code{patchwork} plot(s).
+
+Invisible list with \code{ggplot} plots.
 }
 \description{
 Pack \code{robyn_plots()}, \code{robyn_csv()}, and \code{robyn_clusters()}
 outcomes on \code{robyn_run()} results. When \code{UI=TRUE}, enriched
 \code{OutputModels} results with additional plots and objects.
+
+Create a plot to visualize the convergence for each of the datasets
+when time-series validation is enabled when running \code{robyn_run()}.
+As a reference, the closer the test and validation convergence points are,
+the better, given the time-series wasn't overfitted.
 }
