@@ -18,7 +18,9 @@ robyn_run(
   cores = NULL,
   trials = 5,
   iterations = 2000,
+  rssd_zero_penalty = TRUE,
   nevergrad_algo = "TwoPointsDE",
+  intercept = TRUE,
   intercept_sign = "non_negative",
   lambda_control = NULL,
   ...
@@ -68,10 +70,19 @@ except one). Set to 1 if you want to turn parallel computing off.}
 \item{iterations}{Integer. Recommended 2000 for default when using
 \code{nevergrad_algo = "TwoPointsDE"}.}
 
+\item{rssd_zero_penalty}{Boolean. When TRUE, the objective function
+DECOMP.RSSD will penalize models with more 0 media effects additionally.
+In other words, given the same DECOMP.RSSD score, a model with 50\% 0-coef
+variables will get penalized by DECOMP.RSSD * 1.5 (larger error), while
+another model with no 0-coef variables gets un-penalized with DECOMP.RSSD * 1.}
+
 \item{nevergrad_algo}{Character. Default to "TwoPointsDE". Options are
 \code{c("DE","TwoPointsDE", "OnePlusOne", "DoubleFastGADiscreteOnePlusOne",
 "DiscreteOnePlusOne", "PortfolioDiscreteOnePlusOne", "NaiveTBPSA",
 "cGA", "RandomSearch")}.}
+
+\item{intercept}{Boolean. Should intercept(s) be fitted (default=TRUE) or
+set to zero (FALSE).}
 
 \item{intercept_sign}{Character. Choose one of "non_negative" (default) or
 "unconstrained". By default, if intercept is negative, Robyn will drop intercept

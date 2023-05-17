@@ -13,8 +13,10 @@ robyn_write(
   OutputCollect = NULL,
   select_model = NULL,
   dir = OutputCollect$plot_folder,
+  OutputModels = NULL,
   export = TRUE,
   quiet = FALSE,
+  all_sol_json = NULL,
   ...
 )
 
@@ -36,9 +38,13 @@ into the JSON file?}
 
 \item{dir}{Character. Existing directory to export JSON file to.}
 
+\item{OutputModels}{\code{robyn_run()} output.}
+
 \item{export}{Boolean. Export outcomes into local files?}
 
 \item{quiet}{Boolean. Keep messages off?}
+
+\item{all_sol_json}{Dataframe. Add all pareto solutions to json.}
 
 \item{...}{Additional parameters.}
 

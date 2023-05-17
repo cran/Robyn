@@ -2,7 +2,7 @@ Package: Robyn
 Type: Package
 Title: Semi-Automated Marketing Mix Modeling (MMM) from Meta Marketing
         Science
-Version: 3.9.0
+Version: 3.10.3
 Authors@R: c(
     person("Gufeng", "Zhou", , "gufeng@meta.com", c("aut")),
     person("Leonel", "Sentana", , "leonelsentana@meta.com", c("aut")),
@@ -14,7 +14,7 @@ Description: Semi-Automated Marketing Mix Modeling (MMM) aiming to reduce human 
 Depends: R (>= 4.0.0)
 Imports: doParallel, doRNG, dplyr, foreach, ggplot2, ggridges, glmnet,
         jsonlite, lares, lubridate, minpack.lm, nloptr, patchwork,
-        prophet, reticulate, rPref, stringr, tidyr
+        prophet, reticulate, stringr, tidyr
 Suggests: shiny
 Config/reticulate: list( packages = list( list(package = "nevergrad",
         pip = TRUE) ) )
@@ -26,11 +26,11 @@ License: MIT + file LICENSE
 Encoding: UTF-8
 LazyData: true
 NeedsCompilation: no
-Packaged: 2023-02-07 13:24:07 UTC; bernardolares
+Packaged: 2023-05-17 15:58:47 UTC; bernardolares
 Author: Gufeng Zhou [aut],
   Leonel Sentana [aut],
   Igor Skokan [aut],
   Bernardo Lares [cre, aut],
   Meta Platforms, Inc. [cph, fnd]
 Repository: CRAN
-Date/Publication: 2023-02-08 08:12:37 UTC
+Date/Publication: 2023-05-17 16:50:08 UTC

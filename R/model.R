@@ -38,10 +38,17 @@
 #' \code{c("DE","TwoPointsDE", "OnePlusOne", "DoubleFastGADiscreteOnePlusOne",
 #' "DiscreteOnePlusOne", "PortfolioDiscreteOnePlusOne", "NaiveTBPSA",
 #' "cGA", "RandomSearch")}.
+#' @param intercept Boolean. Should intercept(s) be fitted (default=TRUE) or
+#' set to zero (FALSE).
 #' @param intercept_sign Character. Choose one of "non_negative" (default) or
 #' "unconstrained". By default, if intercept is negative, Robyn will drop intercept
 #' and refit the model. Consider changing intercept_sign to "unconstrained" when
 #' there are \code{context_vars} with large positive values.
+#' @param rssd_zero_penalty Boolean. When TRUE, the objective function
+#' DECOMP.RSSD will penalize models with more 0 media effects additionally.
+#' In other words, given the same DECOMP.RSSD score, a model with 50\% 0-coef
+#' variables will get penalized by DECOMP.RSSD * 1.5 (larger error), while
+#' another model with no 0-coef variables gets un-penalized with DECOMP.RSSD * 1.
 #' @param seed Integer. For reproducible results when running nevergrad.
 #' @param outputs Boolean. Process results with \code{robyn_outputs()}?
 #' @param lambda_control Deprecated in v3.6.0.
@@ -73,7 +80,9 @@ robyn_run <- function(InputCollect = NULL,
                       cores = NULL,
                       trials = 5,
                       iterations = 2000,
+                      rssd_zero_penalty = TRUE,
                       nevergrad_algo = "TwoPointsDE",
+                      intercept = TRUE,
                       intercept_sign = "non_negative",
                       lambda_control = NULL,
                       ...) {
@@ -145,10 +154,12 @@ robyn_run <- function(InputCollect = NULL,
   OutputModels <- robyn_train(
     InputCollect, hyper_collect,
     cores = cores, iterations = iterations, trials = trials,
-    intercept_sign = intercept_sign, nevergrad_algo = nevergrad_algo,
+    intercept_sign = intercept_sign, intercept = intercept,
+    nevergrad_algo = nevergrad_algo,
     dt_hyper_fixed = dt_hyper_fixed,
     ts_validation = ts_validation,
     add_penalty_factor = add_penalty_factor,
+    rssd_zero_penalty = rssd_zero_penalty,
     refresh, seed, quiet
   )
 
@@ -160,6 +171,7 @@ robyn_run <- function(InputCollect = NULL,
     OutputModels$cores <- cores
     OutputModels$iterations <- iterations
     OutputModels$trials <- trials
+    OutputModels$intercept <- intercept
     OutputModels$intercept_sign <- intercept_sign
     OutputModels$nevergrad_algo <- nevergrad_algo
     OutputModels$ts_validation <- ts_validation
@@ -220,6 +232,7 @@ print.robyn_models <- function(x, ...) {
   {hypers}
 
   Nevergrad Algo: {x$nevergrad_algo}
+  Intercept: {x$intercept}
   Intercept sign: {x$intercept_sign}
   Time-series validation: {x$ts_validation}
   Penalty factor: {x$add_penalty_factor}
@@ -272,10 +285,12 @@ Pareto-front ({x$pareto_fronts}) All solutions ({nSols}): {paste(x$allSolutions,
 #' @export
 robyn_train <- function(InputCollect, hyper_collect,
                         cores, iterations, trials,
-                        intercept_sign, nevergrad_algo,
+                        intercept_sign, intercept,
+                        nevergrad_algo,
                         dt_hyper_fixed = NULL,
                         ts_validation = TRUE,
                         add_penalty_factor = FALSE,
+                        rssd_zero_penalty = TRUE,
                         refresh = FALSE, seed = 123,
                         quiet = FALSE) {
   hyper_fixed <- hyper_collect$all_fixed
@@ -288,9 +303,12 @@ robyn_train <- function(InputCollect, hyper_collect,
       iterations = iterations,
       cores = cores,
       nevergrad_algo = nevergrad_algo,
+      intercept = intercept,
       intercept_sign = intercept_sign,
       dt_hyper_fixed = dt_hyper_fixed,
       ts_validation = ts_validation,
+      add_penalty_factor = add_penalty_factor,
+      rssd_zero_penalty = rssd_zero_penalty,
       seed = seed,
       quiet = quiet
     )
@@ -322,9 +340,11 @@ robyn_train <- function(InputCollect, hyper_collect,
         iterations = iterations,
         cores = cores,
         nevergrad_algo = nevergrad_algo,
+        intercept = intercept,
         intercept_sign = intercept_sign,
         ts_validation = ts_validation,
         add_penalty_factor = add_penalty_factor,
+        rssd_zero_penalty = rssd_zero_penalty,
         refresh = refresh,
         trial = ngt,
         seed = seed + ngt,
@@ -377,15 +397,17 @@ robyn_mmm <- function(InputCollect,
                       iterations,
                       cores,
                       nevergrad_algo,
+                      intercept = TRUE,
                       intercept_sign,
                       ts_validation = TRUE,
                       add_penalty_factor = FALSE,
                       dt_hyper_fixed = NULL,
                       # lambda_fixed = NULL,
+                      rssd_zero_penalty = TRUE,
                       refresh = FALSE,
                       trial = 1L,
                       seed = 123L,
-                      quiet = FALSE) {
+                      quiet = FALSE, ...) {
   if (reticulate::py_module_available("nevergrad")) {
     ng <- reticulate::import("nevergrad", delay_load = TRUE)
     if (is.integer(seed)) {
@@ -442,12 +464,8 @@ robyn_mmm <- function(InputCollect,
     paid_media_signs <- InputCollect$paid_media_signs
     prophet_signs <- InputCollect$prophet_signs
     organic_signs <- InputCollect$organic_signs
-    all_media <- InputCollect$all_media
     calibration_input <- InputCollect$calibration_input
     optimizer_name <- nevergrad_algo
-    ts_validation <- ts_validation
-    add_penalty_factor <- add_penalty_factor
-    intercept_sign <- intercept_sign
     i <- NULL # For parallel iterations (globalVar)
   }
 
@@ -459,9 +477,10 @@ robyn_mmm <- function(InputCollect,
   dt_spendShare <- data.frame(
     rn = paid_media_spends,
     total_spend = unlist(summarise_all(temp, sum)),
-    mean_spend = unlist(summarise_all(temp, function(x) {
-      ifelse(is.na(mean(x[x > 0])), 0, mean(x[x > 0]))
-    }))
+    # mean_spend = unlist(summarise_all(temp, function(x) {
+    #   ifelse(is.na(mean(x[x > 0])), 0, mean(x[x > 0]))
+    # }))
+    mean_spend = unlist(summarise_all(temp, mean))
   ) %>%
     mutate(spend_share = .data$total_spend / sum(.data$total_spend))
   # When not refreshing, dt_spendShareRF = dt_spendShare
@@ -471,9 +490,10 @@ robyn_mmm <- function(InputCollect,
   dt_spendShareRF <- data.frame(
     rn = paid_media_spends,
     total_spend = unlist(summarise_all(temp, sum)),
-    mean_spend = unlist(summarise_all(temp, function(x) {
-      ifelse(is.na(mean(x[x > 0])), 0, mean(x[x > 0]))
-    }))
+    # mean_spend = unlist(summarise_all(temp, function(x) {
+    #   ifelse(is.na(mean(x[x > 0])), 0, mean(x[x > 0]))
+    # }))
+    mean_spend = unlist(summarise_all(temp, mean))
   ) %>%
     mutate(spend_share = .data$total_spend / sum(.data$total_spend))
   # Join both dataframes into a single one
@@ -567,78 +587,12 @@ robyn_mmm <- function(InputCollect,
             #### Get hyperparameter sample
             hypParamSam <- hypParamSamNG[i, ]
             adstock <- check_adstock(adstock)
+
             #### Transform media for model fitting
-            dt_modAdstocked <- select(dt_mod, -.data$ds)
-            mediaAdstocked <- list()
-            mediaImmediate <- list()
-            mediaCarryover <- list()
-            mediaVecCum <- list()
-            mediaSaturated <- list()
-            mediaSaturatedImmediate <- list()
-            mediaSaturatedCarryover <- list()
-
-            for (v in seq_along(all_media)) {
-              ################################################
-              ## 1. Adstocking (whole data)
-              # Decayed/adstocked response = Immediate response + Carryover response
-              m <- dt_modAdstocked[, all_media[v]][[1]]
-              if (adstock == "geometric") {
-                theta <- hypParamSam[paste0(all_media[v], "_thetas")][[1]][[1]]
-                x_list <- adstock_geometric(x = m, theta = theta)
-              } else if (adstock == "weibull_cdf") {
-                shape <- hypParamSam[paste0(all_media[v], "_shapes")][[1]][[1]]
-                scale <- hypParamSam[paste0(all_media[v], "_scales")][[1]][[1]]
-                x_list <- adstock_weibull(x = m, shape = shape, scale = scale, type = "cdf")
-              } else if (adstock == "weibull_pdf") {
-                shape <- hypParamSam[paste0(all_media[v], "_shapes")][[1]][[1]]
-                scale <- hypParamSam[paste0(all_media[v], "_scales")][[1]][[1]]
-                x_list <- adstock_weibull(x = m, shape = shape, scale = scale, type = "pdf")
-              }
-              m_adstocked <- x_list$x_decayed
-              mediaAdstocked[[v]] <- m_adstocked
-              m_carryover <- m_adstocked - m
-              m[m_carryover < 0] <- m_adstocked[m_carryover < 0] # adapt for weibull_pdf with lags
-              m_carryover[m_carryover < 0] <- 0 # adapt for weibull_pdf with lags
-              mediaImmediate[[v]] <- m
-              mediaCarryover[[v]] <- m_carryover
-              mediaVecCum[[v]] <- x_list$thetaVecCum
-
-              ################################################
-              ## 2. Saturation (only window data)
-              # Saturated response = Immediate response + carryover response
-              m_adstockedRollWind <- m_adstocked[rollingWindowStartWhich:rollingWindowEndWhich]
-              m_carryoverRollWind <- m_carryover[rollingWindowStartWhich:rollingWindowEndWhich]
-
-              alpha <- hypParamSam[paste0(all_media[v], "_alphas")][[1]][[1]]
-              gamma <- hypParamSam[paste0(all_media[v], "_gammas")][[1]][[1]]
-              mediaSaturated[[v]] <- saturation_hill(
-                m_adstockedRollWind,
-                alpha = alpha, gamma = gamma
-              )
-              mediaSaturatedCarryover[[v]] <- saturation_hill(
-                m_adstockedRollWind,
-                alpha = alpha, gamma = gamma, x_marginal = m_carryoverRollWind
-              )
-              mediaSaturatedImmediate[[v]] <- mediaSaturated[[v]] - mediaSaturatedCarryover[[v]]
-              # plot(m_adstockedRollWind, mediaSaturated[[1]])
-            }
-
-            names(mediaAdstocked) <- names(mediaImmediate) <- names(mediaCarryover) <- names(mediaVecCum) <-
-              names(mediaSaturated) <- names(mediaSaturatedImmediate) <- names(mediaSaturatedCarryover) <-
-              all_media
-            dt_modAdstocked <- dt_modAdstocked %>%
-              select(-all_of(all_media)) %>%
-              bind_cols(mediaAdstocked)
-            dt_mediaImmediate <- bind_cols(mediaImmediate)
-            dt_mediaCarryover <- bind_cols(mediaCarryover)
-            mediaVecCum <- bind_cols(mediaVecCum)
-            dt_modSaturated <- dt_modAdstocked[rollingWindowStartWhich:rollingWindowEndWhich, ] %>%
-              select(-all_of(all_media)) %>%
-              bind_cols(mediaSaturated)
-            dt_saturatedImmediate <- bind_cols(mediaSaturatedImmediate)
-            dt_saturatedImmediate[is.na(dt_saturatedImmediate)] <- 0
-            dt_saturatedCarryover <- bind_cols(mediaSaturatedCarryover)
-            dt_saturatedCarryover[is.na(dt_saturatedCarryover)] <- 0
+            temp <- run_transformations(InputCollect, hypParamSam, adstock)
+            dt_modSaturated <- temp$dt_modSaturated
+            dt_saturatedImmediate <- temp$dt_saturatedImmediate
+            dt_saturatedCarryover <- temp$dt_saturatedCarryover
 
             #####################################
             #### Split train & test and prepare data for modelling
@@ -672,8 +626,9 @@ robyn_mmm <- function(InputCollect,
             x_sign <- c(prophet_signs, context_signs, paid_media_signs, organic_signs)
             names(x_sign) <- c(prophet_vars, context_vars, paid_media_spends, organic_vars)
             check_factor <- unlist(lapply(dt_sign, is.factor))
-            lower.limits <- upper.limits <- NULL
-            for (s in seq_along(check_factor)) {
+            lower.limits <- rep(0, length(prophet_signs))
+            upper.limits <- rep(1, length(prophet_signs))
+            for (s in (length(prophet_signs) + 1):length(x_sign)) {
               if (check_factor[s] == TRUE) {
                 level.n <- length(levels(unlist(dt_sign[, s, with = FALSE])))
                 if (level.n <= 1) {
@@ -714,22 +669,6 @@ robyn_mmm <- function(InputCollect,
               penalty.factor <- rep(1, ncol(x_train))
             }
 
-            glm_mod <- glmnet(
-              x_train,
-              y_train,
-              family = "gaussian",
-              alpha = 0, # 0 for ridge regression
-              lambda = lambda_scaled,
-              lower.limits = lower.limits,
-              upper.limits = upper.limits,
-              type.measure = "mse",
-              penalty.factor = penalty.factor
-            ) # plot(glm_mod); coef(glm_mod)
-
-            # # When we used CV instead of nevergrad
-            # lambda_range <- c(cvmod$lambda.min, cvmod$lambda.1se)
-            # lambda <- lambda_range[1] + (lambda_range[2]-lambda_range[1]) * lambda_control
-
             #####################################
             ## NRMSE: Model's fit error
 
@@ -741,15 +680,17 @@ robyn_mmm <- function(InputCollect,
               lambda = lambda_scaled,
               lower.limits = lower.limits,
               upper.limits = upper.limits,
-              intercept_sign = intercept_sign
+              intercept = intercept,
+              intercept_sign = intercept_sign,
+              penalty.factor = penalty.factor,
+              ...
             )
             decompCollect <- model_decomp(
               coefs = mod_out$coefs,
-              dt_modSaturated = dt_modSaturated,
               y_pred = mod_out$y_pred,
+              dt_modSaturated = dt_modSaturated,
               dt_saturatedImmediate = dt_saturatedImmediate,
               dt_saturatedCarryover = dt_saturatedCarryover,
-              i = i,
               dt_modRollWind = dt_modRollWind,
               refreshAddedStart = refreshAddedStart
             )
@@ -767,7 +708,6 @@ robyn_mmm <- function(InputCollect,
                 wind_start = rollingWindowStartWhich,
                 wind_end = rollingWindowEndWhich,
                 dayInterval = InputCollect$dayInterval,
-                dt_modAdstocked = dt_modAdstocked,
                 adstock = adstock,
                 xDecompVec = decompCollect$xDecompVec,
                 coefs = decompCollect$coefsOutCat
@@ -804,6 +744,12 @@ robyn_mmm <- function(InputCollect,
             )
             if (!refresh) {
               decomp.rssd <- sqrt(sum((dt_decompSpendDist$effect_share - dt_decompSpendDist$spend_share)^2))
+              # Penalty for models with more 0-coefficients
+              if (rssd_zero_penalty) {
+                is_0eff <- round(dt_decompSpendDist$effect_share, 4) == 0
+                share_0eff <- sum(is_0eff) / length(dt_decompSpendDist$effect_share)
+                decomp.rssd <- decomp.rssd * (1 + share_0eff)
+              }
             } else {
               dt_decompRF <- select(decompCollect$xDecompAgg, .data$rn, decomp_perc = .data$xDecompPerc) %>%
                 left_join(select(xDecompAggPrev, .data$rn, decomp_perc_prev = .data$xDecompPerc),
@@ -848,9 +794,9 @@ robyn_mmm <- function(InputCollect,
               solID = paste(trial, lng, i, sep = "_"),
               trial = trial,
               iterNG = lng,
-              iterPar = i,
-              df.int = df.int
+              iterPar = i
             )
+
             total_common <- ncol(common)
             split_common <- which(colnames(common) == "lambda_min_ratio")
 
@@ -864,16 +810,6 @@ robyn_mmm <- function(InputCollect,
               ) %>%
               bind_cols(common[, (split_common + 1):total_common]) %>%
               dplyr::mutate_all(unlist)
-
-            mediaDecompImmediate <- select(decompCollect$mediaDecompImmediate, -.data$ds, -.data$y)
-            colnames(mediaDecompImmediate) <- paste0(colnames(mediaDecompImmediate), "_MDI")
-            mediaDecompCarryover <- select(decompCollect$mediaDecompCarryover, -.data$ds, -.data$y)
-            colnames(mediaDecompCarryover) <- paste0(colnames(mediaDecompCarryover), "_MDC")
-            resultCollect[["xDecompVec"]] <- bind_cols(
-              decompCollect$xDecompVec,
-              mediaDecompImmediate,
-              mediaDecompCarryover
-            ) %>% mutate(trial = trial, iterNG = lng, iterPar = i)
 
             resultCollect[["xDecompAgg"]] <- decompCollect$xDecompAgg %>%
               mutate(train_size = train_size) %>%
@@ -970,11 +906,11 @@ robyn_mmm <- function(InputCollect,
     })
   ))
 
-  resultCollect[["xDecompVec"]] <- as_tibble(bind_rows(
-    lapply(resultCollectNG, function(x) {
-      bind_rows(lapply(x, function(y) y$xDecompVec))
-    })
-  ))
+  # resultCollect[["xDecompVec"]] <- as_tibble(bind_rows(
+  #   lapply(resultCollectNG, function(x) {
+  #     bind_rows(lapply(x, function(y) y$xDecompVec))
+  #   })
+  # ))
 
   resultCollect[["xDecompAgg"]] <- as_tibble(bind_rows(
     lapply(resultCollectNG, function(x) {
@@ -1012,8 +948,10 @@ robyn_mmm <- function(InputCollect,
   ))
 }
 
-model_decomp <- function(coefs, dt_modSaturated, y_pred, dt_saturatedImmediate,
-                         dt_saturatedCarryover, i, dt_modRollWind, refreshAddedStart) {
+model_decomp <- function(coefs, y_pred,
+                         dt_modSaturated, dt_saturatedImmediate,
+                         dt_saturatedCarryover, dt_modRollWind,
+                         refreshAddedStart) {
   ## Input for decomp
   y <- dt_modSaturated$dep_var
   # x <- data.frame(x)
@@ -1031,8 +969,8 @@ model_decomp <- function(coefs, dt_modSaturated, y_pred, dt_saturatedImmediate,
   xDecompOut <- cbind(data.frame(ds = dt_modRollWind$ds, y = y, y_pred = y_pred), xDecomp)
 
   ## Decomp immediate & carryover response
-  sel_coef <- rownames(coefs) %in% names(dt_saturatedImmediate)
-  coefs_media <- coefs[sel_coef, ]
+  sel_coef <- c(rownames(coefs), names(coefs)) %in% names(dt_saturatedImmediate)
+  coefs_media <- coefs[sel_coef]
   names(coefs_media) <- rownames(coefs)[sel_coef]
   mediaDecompImmediate <- data.frame(mapply(function(regressor, coeff) {
     regressor * coeff
@@ -1041,26 +979,8 @@ model_decomp <- function(coefs, dt_modSaturated, y_pred, dt_saturatedImmediate,
     regressor * coeff
   }, regressor = dt_saturatedCarryover, coeff = coefs_media))
 
-  ## QA decomp
-  check_split <- all(round(xDecomp[, names(coefs_media)], 2) ==
-    round(mediaDecompImmediate + mediaDecompCarryover, 2))
-  if (!check_split) {
-    message(paste0(
-      "Attention for loop ", i,
-      ": immediate & carryover decomp don't sum up to total"
-    ))
-  }
-  y_hat <- rowSums(xDecomp, na.rm = TRUE)
-  errorTerm <- y_hat - y_pred
-  # if (prod(round(y_pred) == round(y_hat)) == 0) {
-  #   message(paste0(
-  #     "Attention for loop ", i,
-  #     ": manual decomp is not matching linear model prediction. ",
-  #     "Deviation is ", round(mean(errorTerm / y) * 100, 2), "%"
-  #   ))
-  # }
-
   ## Output decomp
+  y_hat <- rowSums(xDecomp, na.rm = TRUE)
   y_hat.scaled <- rowSums(abs(xDecomp), na.rm = TRUE)
   xDecompOutPerc.scaled <- abs(xDecomp) / y_hat.scaled
   xDecompOut.scaled <- y_hat * xDecompOutPerc.scaled
@@ -1085,15 +1005,17 @@ model_decomp <- function(coefs, dt_modSaturated, y_pred, dt_saturatedImmediate,
   xDecompOutAggMeanNon0RF[is.nan(xDecompOutAggMeanNon0RF)] <- 0
   xDecompOutAggMeanNon0PercRF <- xDecompOutAggMeanNon0RF / sum(xDecompOutAggMeanNon0RF)
 
-  coefsOutCat <- coefsOut <- data.frame(rn = rownames(coefs), coefs)
+  coefsOutCat <- coefsOut <- data.frame(rn = c(rownames(coefs), names(coefs)), coefs)
   if (length(x_factor) > 0) {
     coefsOut$rn <- sapply(x_factor, function(x) str_replace(coefsOut$rn, paste0(x, ".*"), x))
   }
+  rn_order <- names(xDecompOutAgg)
+  rn_order[rn_order == "intercept"] <- "(Intercept)"
   coefsOut <- coefsOut %>%
     group_by(.data$rn) %>%
-    summarise(s0 = mean(.data$s0)) %>%
-    rename("coef" = "s0") %>%
-    .[match(rownames(coefsOut), .$rn), ]
+    rename("coef" = 2) %>%
+    summarise(coef = mean(.data$coef)) %>%
+    arrange(match(.data$rn, rn_order))
 
   decompOutAgg <- as_tibble(cbind(coefsOut, data.frame(
     xDecompAgg = xDecompOutAgg,
@@ -1118,34 +1040,42 @@ model_decomp <- function(coefs, dt_modSaturated, y_pred, dt_saturatedImmediate,
 
 model_refit <- function(x_train, y_train, x_val, y_val, x_test, y_test,
                         lambda, lower.limits, upper.limits,
-                        intercept_sign = "non_negative") {
+                        intercept = TRUE,
+                        intercept_sign = "non_negative",
+                        penalty.factor = rep(1, ncol(y_train)),
+                        ...) {
   mod <- glmnet(
     x_train,
     y_train,
     family = "gaussian",
     alpha = 0, # 0 for ridge regression
-    # https://stats.stackexchange.com/questions/138569/why-is-lambda-within-one-standard-error-from-the-minimum-is-a-recommended-valu
     lambda = lambda,
     lower.limits = lower.limits,
-    upper.limits = upper.limits
+    upper.limits = upper.limits,
+    type.measure = "mse",
+    penalty.factor = penalty.factor,
+    intercept = intercept,
+    ...
   ) # coef(mod)
 
   df.int <- 1
 
-  ## drop intercept if negative and intercept_sign == "non_negative"
+  ## Drop intercept if negative and intercept_sign == "non_negative"
   if (intercept_sign == "non_negative" && coef(mod)[1] < 0) {
     mod <- glmnet(
       x_train,
       y_train,
       family = "gaussian",
-      alpha = 0 # 0 for ridge regression
-      , lambda = lambda,
+      alpha = 0, # 0 for ridge regression
+      lambda = lambda,
       lower.limits = lower.limits,
       upper.limits = upper.limits,
-      intercept = FALSE
+      penalty.factor = penalty.factor,
+      intercept = FALSE,
+      ...
     ) # coef(mod)
     df.int <- 0
-  } # ; plot(mod); print(mod)
+  } # plot(mod); print(mod)
 
   # Calculate all Adjusted R2
   y_train_pred <- as.vector(predict(mod, s = lambda, newx = x_train))
@@ -1169,7 +1099,6 @@ model_refit <- function(x_train, y_train, x_val, y_val, x_test, y_test,
   } else {
     nrmse_val <- nrmse_test <- y_val_pred <- y_test_pred <- NA
   }
-
 
   mod_out <- list(
     rsq_train = rsq_train,
@@ -1216,7 +1145,7 @@ hyper_collector <- function(InputCollect, hyper_in, ts_validation, add_penalty_f
   hypParamSamName <- hyper_names(adstock = InputCollect$adstock, all_media = InputCollect$all_media)
 
   # Manually add other hyper-parameters
-  hypParamSamName <- c(hypParamSamName, other_hyps)
+  hypParamSamName <- c(hypParamSamName, HYPS_OTHERS)
 
   # Add penalty factor hyper-parameters names
   for_penalty <- names(select(InputCollect$dt_mod, -.data$ds, -.data$dep_var))

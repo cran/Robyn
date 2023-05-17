@@ -13,16 +13,16 @@ robyn_allocator(
   OutputCollect = NULL,
   select_model = NULL,
   json_file = NULL,
+  scenario = "max_response",
+  total_budget = NULL,
+  target_value = NULL,
+  date_range = NULL,
+  channel_constr_low = NULL,
+  channel_constr_up = NULL,
+  channel_constr_multiplier = 3,
   optim_algo = "SLSQP_AUGLAG",
-  scenario = "max_historical_response",
-  expected_spend = NULL,
-  expected_spend_days = NULL,
-  channel_constr_low = 0.5,
-  channel_constr_up = 2,
   maxeval = 1e+05,
   constr_mode = "eq",
-  date_min = NULL,
-  date_max = NULL,
   export = TRUE,
   quiet = FALSE,
   ui = FALSE,
@@ -55,22 +55,26 @@ is provided, \code{select_model} defaults to the already selected \code{SolID}. 
 \item{json_file}{Character. JSON file to import previously exported inputs
 (needs \code{dt_input} and \code{dt_holidays} parameters too).}
 
-\item{optim_algo}{Character. Default to \code{"SLSQP_AUGLAG"}, short for "Sequential Least-Squares
-Quadratic Programming" and "Augmented Lagrangian". Alternatively, "\code{"MMA_AUGLAG"},
-short for "Methods of Moving Asymptotes". More details see the documentation of
-NLopt \href{https://nlopt.readthedocs.io/en/latest/NLopt_Algorithms/}{here}.}
+\item{scenario}{Character. Accepted options are: \code{"max_response"}, \code{"target_efficiency"}.
+Scenario \code{"max_response"} answers the question:
+"What's the potential revenue/conversions lift with the same (or custom) spend level
+in \code{date_range} and what is the allocation and expected response mix?"
+Scenario \code{"target_efficiency"} optimizes ROAS or CPA and answers the question:
+"What's the potential revenue/conversions lift and spend levels based on a
+\code{target_value} for CPA/ROAS and what is the allocation and expected response mix?"
+Deprecated scenario: \code{"max_response_expected_spend"}.}
 
-\item{scenario}{Character. Accepted options are: \code{"max_historical_response"} or
-\code{"max_response_expected_spend"}. \code{"max_historical_response"} simulates the scenario
-"what's the optimal media spend allocation given the same average spend level in history?",
-while \code{"max_response_expected_spend"} simulates the scenario "what's the optimal media
-spend allocation of a given future spend level for a given period?"}
+\item{total_budget}{Numeric. Total marketing budget for all paid channels for the
+period in \code{date_range}.}
 
-\item{expected_spend}{Numeric. The expected future spend volume. Only applies when
-\code{scenario = "max_response_expected_spend"}.}
+\item{target_value}{Numeric. When using the scenario \code{"target_efficiency"},
+target_value is the desired ROAS or CPA with no upper spend limit. Default is set to 80\% of
+initial ROAS or 120\% of initial CPA, when \code{"target_value = NULL"}.}
 
-\item{expected_spend_days}{Integer. The duration of the future spend volume in
-\code{expected_spend}. Only applies when \code{scenario = "max_response_expected_spend"}.}
+\item{date_range}{Character. Date(s) to apply adstocked transformations and pick mean spends
+per channel. Set one of: NULL, "all", "last", or "last_n" (where
+n is the last N dates available), date (i.e. "2022-03-27"), or date range
+(i.e. \code{c("2022-01-01", "2022-12-31")}). Default NULL will use last month's worth of data.}
 
 \item{channel_constr_low, channel_constr_up}{Numeric vectors. The lower and upper bounds
 for each paid media variable when maximizing total media response. For example,
@@ -81,15 +85,22 @@ Both constrains must be length 1 (same for all values) OR same length and order 
 if the new level is way higher than historical level. Lower bound must be >=0.01,
 and upper bound should be < 5.}
 
+\item{channel_constr_multiplier}{Numeric. Default to 3. For example, if
+\code{channel_constr_low} and \code{channel_constr_up} are 0.8 to 1.2, the range is 0.4.
+The allocator will also show the optimum solution for a larger constraint range of
+0.4 x 3 = 1.2, or 0.4 to 1.6, to show the optimization potential to support allocation
+interpretation and decision.}
+
+\item{optim_algo}{Character. Default to \code{"SLSQP_AUGLAG"}, short for "Sequential Least-Squares
+Quadratic Programming" and "Augmented Lagrangian". Alternatively, "\code{"MMA_AUGLAG"},
+short for "Methods of Moving Asymptotes". More details see the documentation of
+NLopt \href{https://nlopt.readthedocs.io/en/latest/NLopt_Algorithms/}{here}.}
+
 \item{maxeval}{Integer. The maximum iteration of the global optimization algorithm.
 Defaults to 100000.}
 
 \item{constr_mode}{Character. Options are \code{"eq"} or \code{"ineq"},
 indicating constraints with equality or inequality.}
-
-\item{date_min, date_max}{Character/Date. Date range to calculate mean (of non-zero
-spends) and total spends. Default will consider all dates within modeled window.
-Length must be 1 for both parameters.}
 
 \item{export}{Boolean. Export outcomes into local files?}
 
@@ -113,40 +124,20 @@ variable spends that maximizes the total media response.
 \examples{
 \dontrun{
 # Having InputCollect and OutputCollect results
-# Set your exported model location
-robyn_object <- "~/Desktop/MyRobyn.RDS"
-
-# Check media summary for selected model from the simulated data
-select_model <- "3_10_3"
-OutputCollect$xDecompAgg[
-  solID == select_model & !is.na(mean_spend),
-  .(rn, coef, mean_spend, mean_response, roi_mean,
-    total_spend,
-    total_response = xDecompAgg, roi_total, solID
-  )
-]
-
-# Run allocator with 'InputCollect' and 'OutputCollect'
-# with 'scenario = "max_historical_response"'
 AllocatorCollect <- robyn_allocator(
   InputCollect = InputCollect,
   OutputCollect = OutputCollect,
-  select_model = select_model,
-  scenario = "max_historical_response",
-  channel_constr_low = c(0.7, 0.7, 0.7, 0.7, 0.7),
-  channel_constr_up = c(1.2, 1.5, 1.5, 1.5, 1.5)
-)
-
-# Run allocator with a 'robyn_object' from the second model refresh
-# with 'scenario = "max_response_expected_spend"'
-AllocatorCollect <- robyn_allocator(
-  robyn_object = robyn_object,
-  select_build = 2,
-  scenario = "max_response_expected_spend",
-  channel_constr_low = c(0.7, 0.7, 0.7, 0.7, 0.7),
+  select_model = "1_2_3",
+  scenario = "max_response",
+  channel_constr_low = 0.7,
   channel_constr_up = c(1.2, 1.5, 1.5, 1.5, 1.5),
-  expected_spend = 100000,
-  expected_spend_days = 90
+  channel_constr_multiplier = 4,
+  date_range = "last_26",
+  export = FALSE
 )
+# Print a summary
+print(AllocatorCollect)
+# Plot the allocator one-pager
+plot(AllocatorCollect)
 }
 }

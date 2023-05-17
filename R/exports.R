@@ -16,6 +16,10 @@ robyn_save <- function(InputCollect,
                        robyn_object = NULL,
                        select_model = NULL,
                        quiet = FALSE) {
+  warning(paste(
+    "Function robyn_save() is not supported anymore.",
+    "Please migrate to robyn_write() and robyn_read()"
+  ))
   check_robyn_name(robyn_object, quiet)
   if (is.null(select_model)) select_model <- OutputCollect[["selectID"]]
   if (!select_model %in% OutputCollect$allSolutions) {
@@ -35,9 +39,9 @@ robyn_save <- function(InputCollect,
     )
 
   # Nice and tidy table format for hyper-parameters
-  regex <- paste(paste0("_", hyps_name), collapse = "|")
+  regex <- paste(paste0("_", HYPS_NAMES), collapse = "|")
   hyps <- filter(OutputCollect$resultHypParam, .data$solID == select_model) %>%
-    select(contains(hyps_name)) %>%
+    select(contains(HYPS_NAMES)) %>%
     tidyr::gather() %>%
     tidyr::separate(.data$key,
       into = c("channel", "none"),
@@ -145,6 +149,7 @@ print.robyn_save <- function(x, ...) {
 
   print(x$summary %>%
     mutate(decomp = formatNum(100 * .data$decomp, pos = "%")) %>%
+    dplyr::mutate_if(is.numeric, function(x) ifelse(!is.infinite(x), x, 0)) %>%
     dplyr::mutate_if(is.numeric, function(x) formatNum(x, 4, abbr = TRUE)) %>%
     replace(., . == "NA", "-") %>% as.data.frame())
 

@@ -20,15 +20,15 @@
 #' @author Bernardo Lares (bernardolares@@meta.com)
 #' @importFrom doRNG %dorng%
 #' @importFrom doParallel registerDoParallel stopImplicitCluster
-#' @importFrom dplyr across any_of arrange as_tibble bind_rows contains desc distinct everything filter
-#' group_by lag left_join mutate n pull rename row_number select slice summarise summarise_all ungroup
-#' all_of bind_cols mutate_at starts_with ends_with tally n_distinct
+#' @importFrom dplyr across any_of arrange as_tibble bind_rows case_when contains desc distinct
+#' everything filter group_by lag left_join mutate n pull rename row_number select slice
+#' summarise summarise_all ungroup all_of bind_cols mutate_at starts_with ends_with tally n_distinct
 #' @importFrom foreach foreach %dopar% getDoParWorkers registerDoSEQ
 #' @import ggplot2
 #' @importFrom ggridges geom_density_ridges geom_density_ridges_gradient
-#' @importFrom glmnet cv.glmnet glmnet
+#' @importFrom glmnet glmnet
 #' @importFrom jsonlite fromJSON toJSON write_json read_json
-#' @importFrom lares check_opts clusterKmeans formatNum freqs glued ohse removenacols
+#' @importFrom lares check_opts clusterKmeans formatNum freqs glued num_abbr ohse removenacols
 #' theme_lares `%>%` scale_x_abbr scale_x_percent scale_y_percent scale_y_abbr try_require v2t
 #' @importFrom lubridate is.Date day floor_date
 #' @importFrom minpack.lm nlsLM
@@ -38,10 +38,10 @@
 #' @importFrom prophet add_regressor add_seasonality fit.prophet prophet
 #' @importFrom reticulate tuple use_condaenv import conda_create conda_install py_module_available
 #' virtualenv_create py_install use_virtualenv
-#' @importFrom rPref low psel
 #' @importFrom stats AIC BIC coef complete.cases dgamma dnorm end lm model.matrix na.omit
 #' nls.control median qt sd predict pweibull dweibull quantile qunif reorder rnorm start setNames
 #' @importFrom stringr str_count str_detect str_remove str_split str_which str_extract str_replace
+#' str_to_title
 #' @importFrom tidyr pivot_longer pivot_wider
 #' @importFrom utils askYesNo flush.console head setTxtProgressBar tail txtProgressBar write.csv
 "_PACKAGE"

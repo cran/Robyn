@@ -55,6 +55,7 @@ mic_men <- function(x, Vmax, Km, reverse = FALSE) {
 #' @rdname adstocks
 #' @export
 adstock_geometric <- function(x, theta) {
+  stopifnot(length(theta) == 1)
   if (length(x) > 1) {
     x_decayed <- c(x[1], rep(0, length(x) - 1))
     for (xi in 2:length(x_decayed)) {
@@ -68,7 +69,8 @@ adstock_geometric <- function(x, theta) {
     x_decayed <- x
     thetaVecCum <- theta
   }
-  return(list(x = x, x_decayed = x_decayed, thetaVecCum = thetaVecCum))
+  inflation_total <- sum(x_decayed) / sum(x)
+  return(list(x = x, x_decayed = x_decayed, thetaVecCum = thetaVecCum, inflation_total = inflation_total))
 }
 
 
@@ -118,9 +120,14 @@ adstock_geometric <- function(x, theta) {
 #' @examples
 #' adstock_weibull(rep(100, 5), shape = 0.5, scale = 0.5, type = "CDF")
 #' adstock_weibull(rep(100, 5), shape = 0.5, scale = 0.5, type = "PDF")
+#'
+#' # Wrapped function for either adstock
+#' transform_adstock(rep(100, 10), "weibull_pdf", shape = 1, scale = 0.5)
 #' @rdname adstocks
 #' @export
 adstock_weibull <- function(x, shape, scale, windlen = length(x), type = "cdf") {
+  stopifnot(length(shape) == 1)
+  stopifnot(length(scale) == 1)
   if (length(x) > 1) {
     check_opts(tolower(type), c("cdf", "pdf"))
     x_bin <- 1:windlen
@@ -128,6 +135,7 @@ adstock_weibull <- function(x, shape, scale, windlen = length(x), type = "cdf") 
     if (shape == 0 | scale == 0) {
       x_decayed <- x
       thetaVecCum <- thetaVec <- rep(0, windlen)
+      x_imme <- NULL
     } else {
       if ("cdf" %in% tolower(type)) {
         thetaVec <- c(1, 1 - pweibull(head(x_bin, -1), shape = shape, scale = scaleTrans)) # plot(thetaVec)
@@ -140,14 +148,37 @@ adstock_weibull <- function(x, shape, scale, windlen = length(x), type = "cdf") 
         thetaVecCumLag <- lag(thetaVecCum, x_pos - 1, default = 0)
         x.prod <- x.vec * thetaVecCumLag
         return(x.prod)
-      }, x_val = x, x_pos = x_bin[seq_along(x)])
+      }, x_val = x, x_pos = seq_along(x))
+      x_imme <- diag(x_decayed)
       x_decayed <- rowSums(x_decayed)[seq_along(x)]
     }
   } else {
-    x_decayed <- x
+    x_decayed <- x_imme <- x
     thetaVecCum <- 1
   }
-  return(list(x = x, x_decayed = x_decayed, thetaVecCum = thetaVecCum))
+  inflation_total <- sum(x_decayed) / sum(x)
+  return(list(
+    x = x,
+    x_decayed = x_decayed,
+    thetaVecCum = thetaVecCum,
+    inflation_total = inflation_total,
+    x_imme = x_imme)
+  )
+}
+
+#' @rdname adstocks
+#' @param adstock Character. One of: "geometric", "weibull_cdf", "weibull_pdf".
+#' @export
+transform_adstock <- function(x, adstock, theta = NULL, shape = NULL, scale = NULL, windlen = length(x)) {
+  check_adstock(adstock)
+  if (adstock == "geometric") {
+    x_list_sim <- adstock_geometric(x = x, theta = theta)
+  } else if (adstock == "weibull_cdf") {
+    x_list_sim <- adstock_weibull(x = x, shape = shape, scale = scale, windlen = windlen, type = "cdf")
+  } else if (adstock == "weibull_pdf") {
+    x_list_sim <- adstock_weibull(x = x, shape = shape, scale = scale, windlen = windlen, type = "pdf")
+  }
+  return(x_list_sim)
 }
 
 .normalize <- function(x) {
@@ -177,6 +208,8 @@ adstock_weibull <- function(x, shape, scale, windlen = length(x), type = "cdf") 
 #' @return Numeric values. Transformed values.
 #' @export
 saturation_hill <- function(x, alpha, gamma, x_marginal = NULL) {
+  stopifnot(length(alpha) == 1)
+  stopifnot(length(gamma) == 1)
   inflexion <- c(range(x) %*% c(1 - gamma, gamma)) # linear interpolation by dot product
   if (is.null(x_marginal)) {
     x_scurve <- x**alpha / (x**alpha + inflexion**alpha) # plot(x_scurve) summary(x_scurve)
@@ -238,7 +271,9 @@ plot_adstock <- function(plot = TRUE) {
         for (v2 in seq_along(scaleVec)) {
           dt_weibull <- data.frame(
             x = 1:100,
-            decay_accumulated = adstock_weibull(1:100, shape = shapeVec[v1], scale = scaleVec[v2], type = tolower(types[t]))$thetaVecCum,
+            decay_accumulated = adstock_weibull(
+              1:100, shape = shapeVec[v1], scale = scaleVec[v2],
+              type = tolower(types[t]))$thetaVecCum,
             shape = paste0("shape=", shapeVec[v1]),
             scale = as.factor(scaleVec[v2]),
             type = types[t]
@@ -324,4 +359,83 @@ plot_saturation <- function(plot = TRUE) {
 
     return(p1 + p2)
   }
+}
+
+#### Transform media for model fitting
+run_transformations <- function(InputCollect, hypParamSam, adstock) {
+  all_media <- InputCollect$all_media
+  rollingWindowStartWhich <- InputCollect$rollingWindowStartWhich
+  rollingWindowEndWhich <- InputCollect$rollingWindowEndWhich
+  dt_modAdstocked <- select(InputCollect$dt_mod, -.data$ds)
+
+  mediaAdstocked <- list()
+  mediaImmediate <- list()
+  mediaCarryover <- list()
+  mediaVecCum <- list()
+  mediaSaturated <- list()
+  mediaSaturatedImmediate <- list()
+  mediaSaturatedCarryover <- list()
+
+  for (v in seq_along(all_media)) {
+    ################################################
+    ## 1. Adstocking (whole data)
+    # Decayed/adstocked response = Immediate response + Carryover response
+    m <- dt_modAdstocked[, all_media[v]][[1]]
+    if (adstock == "geometric") {
+      theta <- hypParamSam[paste0(all_media[v], "_thetas")][[1]][[1]]
+    }
+    if (grepl("weibull", adstock)) {
+      shape <- hypParamSam[paste0(all_media[v], "_shapes")][[1]][[1]]
+      scale <- hypParamSam[paste0(all_media[v], "_scales")][[1]][[1]]
+    }
+    x_list <- transform_adstock(m, adstock, theta = theta, shape = shape, scale = scale)
+    m_imme <- if (adstock == "weibull_pdf") x_list$x_imme else m
+    m_adstocked <- x_list$x_decayed
+    mediaAdstocked[[v]] <- m_adstocked
+    m_carryover <- m_adstocked - m_imme
+    mediaImmediate[[v]] <- m_imme
+    mediaCarryover[[v]] <- m_carryover
+    mediaVecCum[[v]] <- x_list$thetaVecCum
+
+    ################################################
+    ## 2. Saturation (only window data)
+    # Saturated response = Immediate response + carryover response
+    m_adstockedRollWind <- m_adstocked[rollingWindowStartWhich:rollingWindowEndWhich]
+    m_carryoverRollWind <- m_carryover[rollingWindowStartWhich:rollingWindowEndWhich]
+
+    alpha <- hypParamSam[paste0(all_media[v], "_alphas")][[1]][[1]]
+    gamma <- hypParamSam[paste0(all_media[v], "_gammas")][[1]][[1]]
+    mediaSaturated[[v]] <- saturation_hill(
+      m_adstockedRollWind,
+      alpha = alpha, gamma = gamma
+    )
+    mediaSaturatedCarryover[[v]] <- saturation_hill(
+      m_adstockedRollWind,
+      alpha = alpha, gamma = gamma, x_marginal = m_carryoverRollWind
+    )
+    mediaSaturatedImmediate[[v]] <- mediaSaturated[[v]] - mediaSaturatedCarryover[[v]]
+    # plot(m_adstockedRollWind, mediaSaturated[[1]])
+  }
+
+  names(mediaAdstocked) <- names(mediaImmediate) <- names(mediaCarryover) <- names(mediaVecCum) <-
+    names(mediaSaturated) <- names(mediaSaturatedImmediate) <- names(mediaSaturatedCarryover) <-
+    all_media
+  dt_modAdstocked <- dt_modAdstocked %>%
+    select(-all_of(all_media)) %>%
+    bind_cols(mediaAdstocked)
+  dt_mediaImmediate <- bind_cols(mediaImmediate)
+  dt_mediaCarryover <- bind_cols(mediaCarryover)
+  mediaVecCum <- bind_cols(mediaVecCum)
+  dt_modSaturated <- dt_modAdstocked[rollingWindowStartWhich:rollingWindowEndWhich, ] %>%
+    select(-all_of(all_media)) %>%
+    bind_cols(mediaSaturated)
+  dt_saturatedImmediate <- bind_cols(mediaSaturatedImmediate)
+  dt_saturatedImmediate[is.na(dt_saturatedImmediate)] <- 0
+  dt_saturatedCarryover <- bind_cols(mediaSaturatedCarryover)
+  dt_saturatedCarryover[is.na(dt_saturatedCarryover)] <- 0
+  return(list(
+    dt_modSaturated = dt_modSaturated,
+    dt_saturatedImmediate = dt_saturatedImmediate,
+    dt_saturatedCarryover = dt_saturatedCarryover
+  ))
 }

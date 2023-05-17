@@ -11,10 +11,12 @@ robyn_train(
   iterations,
   trials,
   intercept_sign,
+  intercept,
   nevergrad_algo,
   dt_hyper_fixed = NULL,
   ts_validation = TRUE,
   add_penalty_factor = FALSE,
+  rssd_zero_penalty = TRUE,
   refresh = FALSE,
   seed = 123,
   quiet = FALSE
@@ -41,6 +43,9 @@ except one). Set to 1 if you want to turn parallel computing off.}
 and refit the model. Consider changing intercept_sign to "unconstrained" when
 there are \code{context_vars} with large positive values.}
 
+\item{intercept}{Boolean. Should intercept(s) be fitted (default=TRUE) or
+set to zero (FALSE).}
+
 \item{nevergrad_algo}{Character. Default to "TwoPointsDE". Options are
 \code{c("DE","TwoPointsDE", "OnePlusOne", "DoubleFastGADiscreteOnePlusOne",
 "DiscreteOnePlusOne", "PortfolioDiscreteOnePlusOne", "NaiveTBPSA",
@@ -63,6 +68,12 @@ function.}
 glmnet's penalty.factor to be optimized by nevergrad. Use with caution, because
 this feature might add too much hyperparameter space and probably requires
 more iterations to converge.}
+
+\item{rssd_zero_penalty}{Boolean. When TRUE, the objective function
+DECOMP.RSSD will penalize models with more 0 media effects additionally.
+In other words, given the same DECOMP.RSSD score, a model with 50\% 0-coef
+variables will get penalized by DECOMP.RSSD * 1.5 (larger error), while
+another model with no 0-coef variables gets un-penalized with DECOMP.RSSD * 1.}
 
 \item{refresh}{Boolean. Set to \code{TRUE} when used in \code{robyn_refresh()}.}
 

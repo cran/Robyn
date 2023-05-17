@@ -132,7 +132,11 @@ robyn_refresh <- function(json_file = NULL,
       listInit$InputCollect$refreshDepth <- refreshDepth <- length(attr(chainData, "chain"))
       listInit$OutputCollect$hyper_updated <- json$ExportedModel$hyper_updated
       Robyn[["listInit"]] <- listInit
-      objectPath <- json$ExportedModel$plot_folder
+      if (is.null(plot_folder)) {
+        objectPath <- json$ExportedModel$plot_folder
+      } else {
+        objectPath <- plot_folder
+      }
       refreshCounter <- 1 # Dummy for now (legacy)
     }
     if (!is.null(robyn_object)) {
@@ -177,9 +181,9 @@ robyn_refresh <- function(json_file = NULL,
       ## Model selection from previous build
       if (!"error_score" %in% names(listOutputPrev$resultHypParam)) {
         listOutputPrev$resultHypParam <- as.data.frame(listOutputPrev$resultHypParam) %>%
-          mutate(error_score = errors_scores(.))
+          mutate(error_score = errors_scores(., ts_validation = listOutputPrev$OutputModels$ts_validation, ...))
       }
-      which_bestModRF <- which.max(listOutputPrev$resultHypParam$error_score)[1]
+      which_bestModRF <- which.min(listOutputPrev$resultHypParam$error_score)[1]
       listOutputPrev$resultHypParam <- listOutputPrev$resultHypParam[which_bestModRF, ]
       listOutputPrev$xDecompAgg <- listOutputPrev$xDecompAgg[which_bestModRF, ]
       listOutputPrev$mediaVecCollect <- listOutputPrev$mediaVecCollect[which_bestModRF, ]
@@ -294,9 +298,9 @@ robyn_refresh <- function(json_file = NULL,
       ...
     )
 
-    ## Select winner model for current refresh
+    ## Select winner model for current refresh (the lower error_score the better)
     OutputCollectRF$resultHypParam <- OutputCollectRF$resultHypParam %>%
-      arrange(.data$solID, desc(.data$error_score)) %>%
+      arrange(.data$error_score) %>%
       select(.data$solID, everything()) %>%
       ungroup()
     bestMod <- OutputCollectRF$resultHypParam$solID[1]

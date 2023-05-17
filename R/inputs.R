@@ -73,9 +73,9 @@
 #' @param factor_vars Character vector. Specify which of the provided
 #' variables in organic_vars or context_vars should be forced as a factor.
 #' @param prophet_vars Character vector. Include any of "trend",
-#' "season", "weekday", "holiday". Are case-sensitive. Highly recommended
+#' "season", "weekday", "holiday" or NULL. Highly recommended
 #' to use all for daily data and "trend", "season", "holiday" for
-#' weekly and above cadence.
+#' weekly and above cadence. Set to NULL to skip prophet's functionality.
 #' @param prophet_signs Character vector. Choose any of
 #' "default", "positive", "negative". Control
 #' the signs of coefficients for prophet variables. Must have same
@@ -237,7 +237,7 @@ robyn_inputs <- function(dt_input = NULL,
 
     ## Check all vars
     all_media <- c(paid_media_spends, organic_vars)
-    all_ind_vars <- c(prophet_vars, context_vars, all_media)
+    all_ind_vars <- c(tolower(prophet_vars), context_vars, all_media)
     check_allvars(all_ind_vars)
 
     ## Check data dimension
@@ -270,7 +270,7 @@ robyn_inputs <- function(dt_input = NULL,
       dep_var, date_var, context_vars, paid_media_vars, paid_media_spends, organic_vars
     )]
 
-    # Check for no-variance columns (after removing not-used)
+    # Check for no-variance columns on raw data (after removing not-used)
     check_novar(select(dt_input, -all_of(unused_vars)))
 
     ## Collect input
@@ -285,7 +285,7 @@ robyn_inputs <- function(dt_input = NULL,
       intervalType = intervalType,
       dep_var = dep_var,
       dep_var_type = dep_var_type,
-      prophet_vars = prophet_vars,
+      prophet_vars = tolower(prophet_vars),
       prophet_signs = prophet_signs,
       prophet_country = prophet_country,
       context_vars = context_vars,
@@ -356,6 +356,13 @@ robyn_inputs <- function(dt_input = NULL,
       )
       InputCollect <- robyn_engineering(InputCollect, ...)
     }
+
+    # Check for no-variance columns (after filtering modeling window)
+    dt_mod_model_window <- InputCollect$dt_mod %>%
+      select(-any_of(InputCollect$unused_vars)) %>%
+      filter(.data$ds >= InputCollect$window_start,
+             .data$ds <= InputCollect$window_end)
+    check_novar(dt_mod_model_window, InputCollect)
   }
 
   if (!is.null(json_file)) {
@@ -517,12 +524,12 @@ Adstock: {x$adstock}
 hyper_names <- function(adstock, all_media) {
   adstock <- check_adstock(adstock)
   if (adstock == "geometric") {
-    local_name <- sort(apply(expand.grid(all_media, hyps_name[
-      grepl("thetas|alphas|gammas", hyps_name)
+    local_name <- sort(apply(expand.grid(all_media, HYPS_NAMES[
+      grepl("thetas|alphas|gammas", HYPS_NAMES)
     ]), 1, paste, collapse = "_"))
   } else if (adstock %in% c("weibull_cdf", "weibull_pdf")) {
-    local_name <- sort(apply(expand.grid(all_media, hyps_name[
-      grepl("shapes|scales|alphas|gammas", hyps_name)
+    local_name <- sort(apply(expand.grid(all_media, HYPS_NAMES[
+      grepl("shapes|scales|alphas|gammas", HYPS_NAMES)
     ]), 1, paste, collapse = "_"))
   }
   return(local_name)
@@ -564,8 +571,7 @@ robyn_engineering <- function(x, quiet = FALSE, ...) {
   if (!quiet) message(">> Running feature engineering...")
   InputCollect <- x
   check_InputCollect(InputCollect)
-  dt_input <- InputCollect$dt_input
-  dt_input <- select(dt_input, -all_of(InputCollect$unused_vars))
+  dt_input <- select(InputCollect$dt_input, -any_of(InputCollect$unused_vars))
   paid_media_vars <- InputCollect$paid_media_vars
   paid_media_spends <- InputCollect$paid_media_spends
   factor_vars <- InputCollect$factor_vars
@@ -682,7 +688,7 @@ robyn_engineering <- function(x, quiet = FALSE, ...) {
           "Threshold (Minimum R2) =", threshold,
           "\n  Check: InputCollect$plotNLSCollect outputs"
         ),
-        "\n  Weak relationship for: ", v2t(these), "and their spend"
+        "\n  Weak relationship for: ", v2t(these), " and their spend"
       )
     }
   }
@@ -831,7 +837,7 @@ prophet_decomp <- function(dt_transform, dt_holidays,
       )
     }
     mod <- fit.prophet(modelRecurrence, dt_regressors)
-    forecastRecurrence <- predict(mod, dt_regressors)
+    forecastRecurrence <- predict(mod, dt_regressors) # prophet::prophet_plot_components(modelRecurrence, forecastRecurrence)
   }
 
   these <- seq_along(unlist(recurrence[, 1]))
@@ -957,7 +963,7 @@ set_holidays <- function(dt_transform, dt_holidays, intervalType) {
     weekStartInput <- lubridate::wday(dt_transform$ds[1], week_start = 1)
     if (!weekStartInput %in% c(1, 7)) stop("Week start has to be Monday or Sunday")
     holidays <- dt_holidays %>%
-      mutate(ds = floor_date(.data$ds, unit = "week", week_start = weekStartInput)) %>%
+      mutate(ds = floor_date(as.Date(.data$ds, origin = "1970-01-01"), unit = "week", week_start = weekStartInput)) %>%
       select(.data$ds, .data$holiday, .data$country, .data$year) %>%
       group_by(.data$ds, .data$country, .data$year) %>%
       summarise(holiday = paste(.data$holiday, collapse = ", "), n = n())
