@@ -42,9 +42,9 @@
 #' target_value is the desired ROAS or CPA with no upper spend limit. Default is set to 80\% of
 #' initial ROAS or 120\% of initial CPA, when \code{"target_value = NULL"}.
 #' @param date_range Character. Date(s) to apply adstocked transformations and pick mean spends
-#' per channel. Set one of: NULL, "all", "last", or "last_n" (where
+#' per channel. Set one of: "all", "last", or "last_n" (where
 #' n is the last N dates available), date (i.e. "2022-03-27"), or date range
-#' (i.e. \code{c("2022-01-01", "2022-12-31")}). Default NULL will use last month's worth of data.
+#' (i.e. \code{c("2022-01-01", "2022-12-31")}). Default to "all".
 #' @param channel_constr_low,channel_constr_up Numeric vectors. The lower and upper bounds
 #' for each paid media variable when maximizing total media response. For example,
 #' \code{channel_constr_low = 0.7} means minimum spend of the variable is 70% of historical
@@ -62,6 +62,7 @@
 #' Defaults to 100000.
 #' @param constr_mode Character. Options are \code{"eq"} or \code{"ineq"},
 #' indicating constraints with equality or inequality.
+#' @param plots Boolean. Generate plots?
 #' @return A list object containing allocator result.
 #' @examples
 #' \dontrun{
@@ -93,20 +94,20 @@ robyn_allocator <- function(robyn_object = NULL,
                             scenario = "max_response",
                             total_budget = NULL,
                             target_value = NULL,
-                            date_range = NULL,
+                            date_range = "all",
                             channel_constr_low = NULL,
                             channel_constr_up = NULL,
                             channel_constr_multiplier = 3,
                             optim_algo = "SLSQP_AUGLAG",
                             maxeval = 100000,
                             constr_mode = "eq",
+                            plots = TRUE,
+                            plot_folder = NULL,
+                            plot_folder_sub = NULL,
                             export = TRUE,
                             quiet = FALSE,
                             ui = FALSE,
                             ...) {
-  #####################################
-  #### Set local environment
-
   ### Use previously exported model using json_file
   if (!is.null(json_file)) {
     if (is.null(InputCollect)) {
@@ -115,34 +116,43 @@ robyn_allocator <- function(robyn_object = NULL,
       )
     }
     if (is.null(OutputCollect)) {
+      if (is.null(plot_folder)) {
+        json <- robyn_read(json_file, step = 2, quiet = TRUE)
+        plot_folder <- dirname(json$ExportedModel$plot_folder)
+        if (!is.null(plot_folder_sub)) plot_folder_sub <- NULL
+      }
       OutputCollect <- robyn_run(
-        json_file = json_file, export = export, plot_folder = robyn_object, ...
+        json_file = json_file, export = export, plot_folder = plot_folder, plot_folder_sub = plot_folder_sub, ...
       )
     }
     if (is.null(select_model)) select_model <- OutputCollect$selectID
   }
 
   ## Collect inputs
-  if (!is.null(robyn_object) && (is.null(InputCollect) && is.null(OutputCollect))) {
-    if ("robyn_exported" %in% class(robyn_object)) {
-      imported <- robyn_object
-      robyn_object <- imported$robyn_object
-    } else {
-      imported <- robyn_load(robyn_object, select_build, quiet)
-    }
-    InputCollect <- imported$InputCollect
-    OutputCollect <- imported$OutputCollect
-    select_model <- imported$select_model
-  } else {
-    if (is.null(select_model) && length(OutputCollect$allSolutions == 1)) {
-      select_model <- OutputCollect$allSolutions
-    }
-    if (any(is.null(InputCollect), is.null(OutputCollect), is.null(select_model))) {
-      stop("When 'robyn_object' is not provided, then InputCollect, OutputCollect, select_model must be provided")
-    }
+  # if (!is.null(robyn_object) && (is.null(InputCollect) && is.null(OutputCollect))) {
+  #   if ("robyn_exported" %in% class(robyn_object)) {
+  #     imported <- robyn_object
+  #     robyn_object <- imported$robyn_object
+  #   } else {
+  #     imported <- robyn_load(robyn_object, select_build, quiet)
+  #   }
+  #   InputCollect <- imported$InputCollect
+  #   OutputCollect <- imported$OutputCollect
+  #   select_model <- imported$select_model
+  # } else {
+  if (is.null(select_model) && length(OutputCollect$allSolutions == 1)) {
+    select_model <- OutputCollect$allSolutions
+  }
+  if (any(is.null(InputCollect), is.null(OutputCollect), is.null(select_model))) {
+    stop("When 'robyn_object' is not provided, then InputCollect, OutputCollect, select_model must be provided")
+  }
+  # }
+
+  if (length(InputCollect$paid_media_spends) <= 1) {
+    stop("Must have a valid model with at least two 'paid_media_spends'")
   }
 
-  message(paste(">>> Running budget allocator for model ID", select_model, "..."))
+  if (!quiet) message(paste(">>> Running budget allocator for model ID", select_model, "..."))
 
   ## Set local data & params values
   paid_media_spends <- InputCollect$paid_media_spends
@@ -158,7 +168,7 @@ robyn_allocator <- function(robyn_object = NULL,
   if (is.null(channel_constr_up)) {
     channel_constr_up <- case_when(
       scenario == "max_response" ~ 2,
-      scenario == "target_efficiency" ~ Inf
+      scenario == "target_efficiency" ~ 10
     )
   }
   if (length(channel_constr_low) == 1) channel_constr_low <- rep(channel_constr_low, length(paid_media_spends))
@@ -200,8 +210,9 @@ robyn_allocator <- function(robyn_object = NULL,
   coefs_sorted <- hills$coefs_sorted
 
   # Spend values based on date range set
-  dt_optimCost <- slice(InputCollect$dt_mod, InputCollect$rollingWindowStartWhich:InputCollect$rollingWindowEndWhich)
-  new_date_range <- check_metric_dates(date_range, dt_optimCost$ds, InputCollect$dayInterval, quiet = FALSE, is_allocator = TRUE)
+  window_loc <- InputCollect$rollingWindowStartWhich:InputCollect$rollingWindowEndWhich
+  dt_optimCost <- slice(InputCollect$dt_mod, window_loc)
+  new_date_range <- check_metric_dates(date_range, dt_optimCost$ds, InputCollect$dayInterval, quiet = quiet, is_allocator = TRUE)
   date_min <- head(new_date_range$date_range_updated, 1)
   date_max <- tail(new_date_range$date_range_updated, 1)
   check_daterange(date_min, date_max, dt_optimCost$ds)
@@ -226,7 +237,12 @@ robyn_allocator <- function(robyn_object = NULL,
   simulation_period <- initial_mean_period <- unlist(summarise_all(select(histFiltered, any_of(mediaSpendSorted)), length))
   nDates <- lapply(mediaSpendSorted, function(x) histFiltered$ds)
   names(nDates) <- mediaSpendSorted
-  message(sprintf("Date Window: %s:%s (%s %ss)", date_min, date_max, unique(initial_mean_period), InputCollect$intervalType))
+  if (!quiet) {
+    message(sprintf(
+      "Date Window: %s:%s (%s %ss)",
+      date_min, date_max, unique(initial_mean_period), InputCollect$intervalType
+    ))
+  }
   zero_spend_channel <- names(histSpendWindow[histSpendWindow == 0])
 
   initSpendUnitTotal <- sum(initSpendUnit)
@@ -236,21 +252,27 @@ robyn_allocator <- function(robyn_object = NULL,
 
   ## Get use case based on inputs
   usecase <- which_usecase(initSpendUnit[1], date_range)
+  if (usecase == "all_historical_vec") {
+    ndates_loc <- which(InputCollect$dt_mod$ds %in% histFiltered$ds)
+  } else {
+    ndates_loc <- seq_along(histFiltered$ds)
+  }
   usecase <- paste(usecase, ifelse(!is.null(total_budget), "+ defined_budget", "+ historical_budget"))
 
   # Response values based on date range -> mean spend
   initResponseUnit <- NULL
   initResponseMargUnit <- NULL
   hist_carryover <- list()
+  qa_carryover <- list()
   for (i in seq_along(mediaSpendSorted)) {
     resp <- robyn_response(
       json_file = json_file,
-      robyn_object = robyn_object,
+      # robyn_object = robyn_object,
       select_build = select_build,
       select_model = select_model,
       metric_name = mediaSpendSorted[i],
-      metric_value = initSpendUnit[i],
-      date_range = date_range,
+      # metric_value = initSpendUnit[i] * simulation_period[i],
+      # date_range = date_range,
       dt_hyppar = OutputCollect$resultHypParam,
       dt_coef = OutputCollect$xDecompAgg,
       InputCollect = InputCollect,
@@ -261,29 +283,43 @@ robyn_allocator <- function(robyn_object = NULL,
     )
     # val <- sort(resp$response_total)[round(length(resp$response_total) / 2)]
     # histSpendUnit[i] <- resp$input_immediate[which(resp$response_total == val)]
-    hist_carryover[[i]] <- resp$input_carryover
+    hist_carryover_temp <- resp$input_carryover[window_loc]
+    qa_carryover[[i]] <- round(resp$input_total[window_loc])
+    names(hist_carryover_temp) <- resp$date[window_loc]
+    hist_carryover[[i]] <- hist_carryover_temp
     # get simulated response
+    # if (resp$input_immediate[1] == initSpendUnit[i]) {
+    #   x_input <- initSpendUnit[i]
+    # } else {
+    #   x_input <- mean(resp$input_immediate)
+    # }
+    x_input <- initSpendUnit[i]
     resp_simulate <- fx_objective(
-      x = initSpendUnit[i],
+      x = x_input,
       coeff = coefs_sorted[[mediaSpendSorted[i]]],
       alpha = alphas[[paste0(mediaSpendSorted[i], "_alphas")]],
       inflexion = inflexions[[paste0(mediaSpendSorted[i], "_gammas")]],
-      x_hist_carryover = mean(resp$input_carryover),
+      x_hist_carryover = mean(hist_carryover_temp),
       get_sum = FALSE
     )
     resp_simulate_plus1 <- fx_objective(
-      x = initSpendUnit[i] + 1,
+      x = x_input + 1,
       coeff = coefs_sorted[[mediaSpendSorted[i]]],
       alpha = alphas[[paste0(mediaSpendSorted[i], "_alphas")]],
       inflexion = inflexions[[paste0(mediaSpendSorted[i], "_gammas")]],
-      x_hist_carryover = mean(resp$input_carryover),
+      x_hist_carryover = mean(hist_carryover_temp),
       get_sum = FALSE
     )
-    names(hist_carryover[[i]]) <- resp$date
     initResponseUnit <- c(initResponseUnit, resp_simulate)
     initResponseMargUnit <- c(initResponseMargUnit, resp_simulate_plus1 - resp_simulate)
   }
-  names(initResponseUnit) <- names(hist_carryover) <- mediaSpendSorted
+  qa_carryover <- do.call(cbind, qa_carryover) %>% as.data.frame()
+  names(initResponseUnit) <- names(hist_carryover) <- names(qa_carryover) <- mediaSpendSorted
+  # QA adstock: simulated adstock should be identical to model adstock
+  # qa_carryover_origin <- OutputCollect$mediaVecCollect %>%
+  #   filter(.data$solID == select_model & .data$type == "adstockedMedia") %>%
+  #   select(mediaSpendSorted) %>% slice(window_loc) %>% round %>% as.data.frame()
+  # identical(qa_carryover, qa_carryover_origin)
   if (length(zero_spend_channel) > 0 && !quiet) {
     message("Media variables with 0 spending during date range: ", v2t(zero_spend_channel))
     # hist_carryover[zero_spend_channel] <- 0
@@ -294,7 +330,11 @@ robyn_allocator <- function(robyn_object = NULL,
     1 - (1 - channelConstrLowSorted) * channel_constr_multiplier < 0,
     0, 1 - (1 - channelConstrLowSorted) * channel_constr_multiplier
   )
-  channelConstrUpSortedExt <- 1 + (channelConstrUpSorted - 1) * channel_constr_multiplier
+  channelConstrUpSortedExt <- ifelse(
+    1 + (channelConstrUpSorted - 1) * channel_constr_multiplier < 0,
+    channelConstrUpSorted * channel_constr_multiplier,
+    1 + (channelConstrUpSorted - 1) * channel_constr_multiplier
+  )
 
   target_value_ext <- target_value
   if (scenario == "target_efficiency") {
@@ -330,17 +370,25 @@ robyn_allocator <- function(robyn_object = NULL,
   skip_these <- (channel_constr_low == 0 & channel_constr_up == 0)
   zero_constraint_channel <- mediaSpendSorted[skip_these]
   if (any(skip_these) && !quiet) {
-    message("Excluded variables (constrained to 0): ", zero_constraint_channel)
+    message(
+      "Excluded variables (constrained to 0): ",
+      paste(zero_constraint_channel, collapse = ", ")
+    )
   }
   if (!all(coefSelectorSorted)) {
     zero_coef_channel <- setdiff(names(coefSelectorSorted), mediaSpendSorted[coefSelectorSorted])
-    message("Excluded variables (coefficients are 0): ", paste(zero_coef_channel, collapse = ", "))
+    if (!quiet) {
+      message(
+        "Excluded variables (coefficients are 0): ",
+        paste(zero_coef_channel, collapse = ", ")
+      )
+    }
   } else {
     zero_coef_channel <- as.character()
   }
-  channel_for_allocation_loc <- mediaSpendSorted %in% c(zero_coef_channel, zero_constraint_channel)
-  channel_for_allocation <- mediaSpendSorted[!channel_for_allocation_loc]
-  if (length(zero_coef_channel) > 0) {
+  channel_to_drop_loc <- mediaSpendSorted %in% c(zero_coef_channel, zero_constraint_channel)
+  channel_for_allocation <- mediaSpendSorted[!channel_to_drop_loc]
+  if (any(channel_to_drop_loc)) {
     temp_init <- temp_init_all[channel_for_allocation]
     temp_ub <- temp_ub_all[channel_for_allocation]
     temp_lb <- temp_lb_all[channel_for_allocation]
@@ -430,14 +478,13 @@ robyn_allocator <- function(robyn_object = NULL,
 
   if (scenario == "target_efficiency") {
     ## bounded optimisation
-    total_response <- sum(OutputCollect$xDecompAgg$xDecompAgg)
     nlsMod <- nloptr::nloptr(
       x0 = x0,
       eval_f = eval_f,
       eval_g_eq = if (constr_mode == "eq") eval_g_eq_effi else NULL,
       eval_g_ineq = if (constr_mode == "ineq") eval_g_eq_effi else NULL,
       lb = lb,
-      ub = rep(total_response, length(ub)),
+      ub = x0 * channel_constr_up[1], # Large enough, but not infinite (customizable)
       opts = list(
         "algorithm" = "NLOPT_LD_AUGLAG",
         "xtol_rel" = 1.0e-10,
@@ -453,7 +500,7 @@ robyn_allocator <- function(robyn_object = NULL,
       eval_g_eq = if (constr_mode == "eq") eval_g_eq_effi else NULL,
       eval_g_ineq = if (constr_mode == "ineq") eval_g_eq_effi else NULL,
       lb = lb,
-      ub = rep(total_response, length(ub)),
+      ub = x0 * channel_constr_up[1], # Large enough, but not infinite (customizable)
       opts = list(
         "algorithm" = "NLOPT_LD_AUGLAG",
         "xtol_rel" = 1.0e-10,
@@ -499,18 +546,18 @@ robyn_allocator <- function(robyn_object = NULL,
   optmSpendUnitOut <- optmResponseUnitOut <- optmResponseMargUnitOut <-
     optmSpendUnitUnboundOut <- optmResponseUnitUnboundOut <-
     optmResponseMargUnitUnboundOut <- initSpendUnit
-  optmSpendUnitOut[channel_for_allocation_loc] <-
-    optmResponseUnitOut[channel_for_allocation_loc] <-
-    optmResponseMargUnitOut[channel_for_allocation_loc] <-
-    optmSpendUnitUnboundOut[channel_for_allocation_loc] <-
-    optmResponseUnitUnboundOut[channel_for_allocation_loc] <-
-    optmResponseMargUnitUnboundOut[channel_for_allocation_loc] <- 0
-  optmSpendUnitOut[!channel_for_allocation_loc] <- optmSpendUnit
-  optmResponseUnitOut[!channel_for_allocation_loc] <- optmResponseUnit
-  optmResponseMargUnitOut[!channel_for_allocation_loc] <- optmResponseMargUnit
-  optmSpendUnitUnboundOut[!channel_for_allocation_loc] <- optmSpendUnitUnbound
-  optmResponseUnitUnboundOut[!channel_for_allocation_loc] <- optmResponseUnitUnbound
-  optmResponseMargUnitUnboundOut[!channel_for_allocation_loc] <- optmResponseMargUnitUnbound
+  optmSpendUnitOut[channel_to_drop_loc] <-
+    optmResponseUnitOut[channel_to_drop_loc] <-
+    optmResponseMargUnitOut[channel_to_drop_loc] <-
+    optmSpendUnitUnboundOut[channel_to_drop_loc] <-
+    optmResponseUnitUnboundOut[channel_to_drop_loc] <-
+    optmResponseMargUnitUnboundOut[channel_to_drop_loc] <- 0
+  optmSpendUnitOut[!channel_to_drop_loc] <- optmSpendUnit
+  optmResponseUnitOut[!channel_to_drop_loc] <- optmResponseUnit
+  optmResponseMargUnitOut[!channel_to_drop_loc] <- optmResponseMargUnit
+  optmSpendUnitUnboundOut[!channel_to_drop_loc] <- optmSpendUnitUnbound
+  optmResponseUnitUnboundOut[!channel_to_drop_loc] <- optmResponseUnitUnbound
+  optmResponseMargUnitUnboundOut[!channel_to_drop_loc] <- optmResponseMargUnitUnbound
 
   dt_optimOut <- data.frame(
     solID = select_model,
@@ -673,6 +720,7 @@ robyn_allocator <- function(robyn_object = NULL,
   temp_caov <- mainPoints %>% filter(.data$type == "Carryover")
   mainPoints$mean_spend <- mainPoints$spend_point - temp_caov$spend_point
   mainPoints$mean_spend <- ifelse(mainPoints$type == "Carryover", mainPoints$spend_point, mainPoints$mean_spend)
+  if (levs1[2] == levs1[3]) levs1[3] <- paste0(levs1[3], ".")
   mainPoints$type <- factor(mainPoints$type, levels = c("Carryover", levs1))
   mainPoints$roi_mean <- mainPoints$response_point / mainPoints$mean_spend
   mresp_caov <- filter(mainPoints, .data$type == "Carryover")$response_point
@@ -684,21 +732,46 @@ robyn_allocator <- function(robyn_object = NULL,
   mainPoints$cpa_marginal <- mainPoints$mean_spend / mainPoints$marginal_response
   eval_list[["mainPoints"]] <- mainPoints
 
-  ## Plot allocator results
-  plots <- allocation_plots(
-    InputCollect, OutputCollect,
-    dt_optimOut,
-    # filter(dt_optimOut, .data$channels %in% channel_for_allocation),
-    select_model, scenario, eval_list, export, quiet
-  )
-
-  ## Export results into CSV
+  # Exporting directory
   if (export) {
+    if (is.null(json_file) & !is.null(plot_folder)) {
+      if (is.null(plot_folder_sub)) plot_folder_sub <- basename(OutputCollect$plot_folder)
+      plot_folder <- gsub("//+", "/", paste0(plot_folder, "/", plot_folder_sub, "/"))
+    } else {
+      plot_folder <- gsub("//+", "/", paste0(OutputCollect$plot_folder, "/"))
+    }
+
+    # if (!is.null(json_file)) {
+    #   plot_folder <- gsub("//+", "/", paste0(OutputCollect$plot_folder, "/"))
+    # } else if (is.null(json_file) & is.null(plot_folder) & is.null(plot_folder_sub)) {
+    #   plot_folder <- gsub("//+", "/", paste0(OutputCollect$plot_folder, "/"))
+    # } else {
+    #   if (is.null(plot_folder_sub)) plot_folder_sub <- basename(OutputCollect$plot_folder)
+    #   plot_folder <- gsub("//+", "/", paste0(plot_folder, "/", plot_folder_sub, "/"))
+    # }
+    if (!dir.exists(plot_folder)) {
+      message("Creating directory for allocator: ", plot_folder)
+      dir.create(plot_folder)
+    }
+    ## Export results into CSV
     export_dt_optimOut <- dt_optimOut
     if (dep_var_type == "conversion") {
       colnames(export_dt_optimOut) <- gsub("Roi", "CPA", colnames(export_dt_optimOut))
     }
-    write.csv(export_dt_optimOut, paste0(OutputCollect$plot_folder, select_model, "_reallocated.csv"))
+    write.csv(export_dt_optimOut, paste0(plot_folder, select_model, "_", scenario, "_reallocated.csv"))
+  }
+
+  ## Plot allocator results
+  if (plots) {
+    plots <- allocation_plots(
+      InputCollect, OutputCollect,
+      dt_optimOut,
+      # filter(dt_optimOut, .data$channels %in% channel_for_allocation),
+      select_model, scenario, eval_list,
+      export, plot_folder, quiet
+    )
+  } else {
+    plots <- NULL
   }
 
   output <- list(
@@ -955,8 +1028,8 @@ get_adstock_params <- function(InputCollect, dt_hyppar) {
 
 get_hill_params <- function(InputCollect, OutputCollect = NULL, dt_hyppar, dt_coef, mediaSpendSorted, select_model, chnAdstocked = NULL) {
   hillHypParVec <- unlist(select(dt_hyppar, na.omit(str_extract(names(dt_hyppar), ".*_alphas|.*_gammas"))))
-  alphas <- hillHypParVec[str_which(names(hillHypParVec), "_alphas")]
-  gammas <- hillHypParVec[str_which(names(hillHypParVec), "_gammas")]
+  alphas <- hillHypParVec[paste0(mediaSpendSorted, "_alphas")]
+  gammas <- hillHypParVec[paste0(mediaSpendSorted, "_gammas")]
   if (is.null(chnAdstocked)) {
     chnAdstocked <- filter(
       OutputCollect$mediaVecCollect,

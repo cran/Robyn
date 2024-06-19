@@ -49,21 +49,28 @@
 #' In other words, given the same DECOMP.RSSD score, a model with 50\% 0-coef
 #' variables will get penalized by DECOMP.RSSD * 1.5 (larger error), while
 #' another model with no 0-coef variables gets un-penalized with DECOMP.RSSD * 1.
+#' @param objective_weights Numeric vector. Default to NULL to give equal weights
+#' to all objective functions. Order: NRMSE, DECOMP.RSSD, MAPE (when calibration
+#' data is provided). When you are not calibrating, only the first 2 values for
+#' \code{objective_weights} must be defined, i.e. set c(2, 1) to give double weight
+#' to the 1st (NRMSE). This is an experimental feature. There's no research on
+#' optimal weight setting. Subjective weights might strongly bias modeling results.
 #' @param seed Integer. For reproducible results when running nevergrad.
-#' @param outputs Boolean. Process results with \code{robyn_outputs()}?
 #' @param lambda_control Deprecated in v3.6.0.
+#' @param outputs Boolean. If set to TRUE, will run \code{robyn_run()} and
+#' \code{robyn_outputs()}, returning a list with OutputModels and
+#' OutputCollect results.
 #' @param ... Additional parameters passed to \code{robyn_outputs()}.
 #' @return List. Class: \code{robyn_models}. Contains the results of all trials
 #' and iterations modeled.
 #' @examples
 #' \dontrun{
 #' # Having InputCollect results
-#' OutputCollect <- robyn_run(
+#' OutputModels <- robyn_run(
 #'   InputCollect = InputCollect,
 #'   cores = 2,
 #'   iterations = 200,
-#'   trials = 1,
-#'   outputs = FALSE
+#'   trials = 1
 #' )
 #' }
 #' @return List. Contains all trained models. Class: \code{robyn_models}.
@@ -75,17 +82,47 @@ robyn_run <- function(InputCollect = NULL,
                       add_penalty_factor = FALSE,
                       refresh = FALSE,
                       seed = 123L,
-                      outputs = FALSE,
                       quiet = FALSE,
                       cores = NULL,
                       trials = 5,
                       iterations = 2000,
                       rssd_zero_penalty = TRUE,
+                      objective_weights = NULL,
                       nevergrad_algo = "TwoPointsDE",
                       intercept = TRUE,
                       intercept_sign = "non_negative",
                       lambda_control = NULL,
+                      outputs = FALSE,
                       ...) {
+  if (isTRUE(outputs)) {
+    OutputModels <- robyn_run(
+      InputCollect = InputCollect,
+      dt_hyper_fixed = dt_hyper_fixed,
+      json_file = json_file,
+      add_penalty_factor = add_penalty_factor,
+      ts_validation = ts_validation,
+      refresh = refresh,
+      seed = seed,
+      quiet = quiet,
+      cores = cores,
+      trials = trials,
+      iterations = iterations,
+      rssd_zero_penalty = rssd_zero_penalty,
+      objective_weights = objective_weights,
+      nevergrad_algo = nevergrad_algo,
+      intercept = intercept,
+      intercept_sign = intercept_sign,
+      lambda_control = lambda_control,
+      outputs = FALSE,
+      ...
+    )
+    OutputCollect <- robyn_outputs(InputCollect, OutputModels, ...)
+    return(list(
+      OutputModels = OutputModels,
+      OutputCollect = OutputCollect
+    ))
+  }
+
   t0 <- Sys.time()
 
   ### Use previously exported model using json_file
@@ -135,6 +172,7 @@ robyn_run <- function(InputCollect = NULL,
   check_run_inputs(cores, iterations, trials, intercept_sign, nevergrad_algo)
   check_iteration(InputCollect$calibration_input, iterations, trials, hyps_fixed, refresh)
   init_msgs_run(InputCollect, refresh, lambda_control = NULL, quiet)
+  objective_weights <- check_obj_weight(InputCollect$calibration_input, objective_weights, refresh)
 
   #####################################
   #### Prepare hyper-parameters
@@ -160,6 +198,7 @@ robyn_run <- function(InputCollect = NULL,
     ts_validation = ts_validation,
     add_penalty_factor = add_penalty_factor,
     rssd_zero_penalty = rssd_zero_penalty,
+    objective_weights = objective_weights,
     refresh, seed, quiet
   )
 
@@ -168,6 +207,7 @@ robyn_run <- function(InputCollect = NULL,
   attr(OutputModels, "refresh") <- refresh
 
   if (TRUE) {
+    OutputModels$train_timestamp <- Sys.time()
     OutputModels$cores <- cores
     OutputModels$iterations <- iterations
     OutputModels$trials <- trials
@@ -177,17 +217,29 @@ robyn_run <- function(InputCollect = NULL,
     OutputModels$ts_validation <- ts_validation
     OutputModels$add_penalty_factor <- add_penalty_factor
     OutputModels$hyper_updated <- hyper_collect$hyper_list_all
+    OutputModels$hyper_fixed <- hyper_collect$all_fixed
   }
 
   # Not direct output & not all fixed hyperparameters
-  if (!outputs & is.null(dt_hyper_fixed)) {
+  if (is.null(dt_hyper_fixed)) {
     output <- OutputModels
   } else if (!hyper_collect$all_fixed) {
     # Direct output & not all fixed hyperparameters, including refresh mode
     output <- robyn_outputs(InputCollect, OutputModels, refresh = refresh, ...)
   } else {
-    # Direct output & all fixed hyperparameters, thus no cluster
-    output <- robyn_outputs(InputCollect, OutputModels, clusters = FALSE, ...)
+    if (!"clusters" %in% names(list(...))) {
+      # Direct output & all fixed hyperparameters, thus no cluster
+      output <- robyn_outputs(InputCollect, OutputModels, clusters = FALSE, ...)
+    } else {
+      output <- robyn_outputs(InputCollect, OutputModels, ...)
+    }
+  }
+
+  # Created with assign from JSON file
+  if (exists("clusters")) {
+    if (!is.integer(get("clusters"))) {
+      output$clusters <- get("clusters")
+    }
   }
 
   # Check convergence when more than 1 iteration
@@ -261,7 +313,7 @@ Pareto-front ({x$pareto_fronts}) All solutions ({nSols}): {paste(x$allSolutions,
 {clusters_info}
 ",
       nSols = length(x$allSolutions),
-      clusters_info = if ("clusters" %in% names(x)) {
+      clusters_info = if ("models" %in% names(x[["clusters"]])) {
         glued(
           "Clusters (k = {x$clusters$n_clusters}): {paste(x$clusters$models$solID, collapse = ', ')}"
         )
@@ -290,6 +342,7 @@ robyn_train <- function(InputCollect, hyper_collect,
                         dt_hyper_fixed = NULL,
                         ts_validation = TRUE,
                         add_penalty_factor = FALSE,
+                        objective_weights = NULL,
                         rssd_zero_penalty = TRUE,
                         refresh = FALSE, seed = 123,
                         quiet = FALSE) {
@@ -309,6 +362,7 @@ robyn_train <- function(InputCollect, hyper_collect,
       ts_validation = ts_validation,
       add_penalty_factor = add_penalty_factor,
       rssd_zero_penalty = rssd_zero_penalty,
+      objective_weights = objective_weights,
       seed = seed,
       quiet = quiet
     )
@@ -345,6 +399,7 @@ robyn_train <- function(InputCollect, hyper_collect,
         ts_validation = ts_validation,
         add_penalty_factor = add_penalty_factor,
         rssd_zero_penalty = rssd_zero_penalty,
+        objective_weights = objective_weights,
         refresh = refresh,
         trial = ngt,
         seed = seed + ngt,
@@ -401,6 +456,7 @@ robyn_mmm <- function(InputCollect,
                       intercept_sign,
                       ts_validation = TRUE,
                       add_penalty_factor = FALSE,
+                      objective_weights = NULL,
                       dt_hyper_fixed = NULL,
                       # lambda_fixed = NULL,
                       rssd_zero_penalty = TRUE,
@@ -408,17 +464,19 @@ robyn_mmm <- function(InputCollect,
                       trial = 1L,
                       seed = 123L,
                       quiet = FALSE, ...) {
-  if (reticulate::py_module_available("nevergrad")) {
-    ng <- reticulate::import("nevergrad", delay_load = TRUE)
-    if (is.integer(seed)) {
-      np <- reticulate::import("numpy", delay_load = FALSE)
-      np$random$seed(seed)
+  if (iterations > 1) {
+    if (reticulate::py_module_available("nevergrad")) {
+      ng <- reticulate::import("nevergrad", delay_load = TRUE)
+      if (is.integer(seed)) {
+        np <- reticulate::import("numpy", delay_load = FALSE)
+        np$random$seed(seed)
+      }
+    } else {
+      stop(
+        "You must have nevergrad python library installed.\nPlease check our install demo: ",
+        "https://github.com/facebookexperimental/Robyn/blob/main/demo/install_nevergrad.R"
+      )
     }
-  } else {
-    stop(
-      "You must have nevergrad python library installed.\nPlease check our install demo: ",
-      "https://github.com/facebookexperimental/Robyn/blob/main/demo/install_nevergrad.R"
-    )
   }
 
   ################################################
@@ -529,11 +587,24 @@ robyn_mmm <- function(InputCollect,
     my_tuple <- tuple(hyper_count)
     instrumentation <- ng$p$Array(shape = my_tuple, lower = 0, upper = 1)
     optimizer <- ng$optimizers$registry[optimizer_name](instrumentation, budget = iterTotal, num_workers = cores)
+
     # Set multi-objective dimensions for objective functions (errors)
     if (is.null(calibration_input)) {
       optimizer$tell(ng$p$MultiobjectiveReference(), tuple(1, 1))
+      if (is.null(objective_weights)) {
+        objective_weights <- tuple(1, 1)
+      } else {
+        objective_weights <- tuple(objective_weights[1], objective_weights[2])
+      }
+      optimizer$set_objective_weights(objective_weights)
     } else {
       optimizer$tell(ng$p$MultiobjectiveReference(), tuple(1, 1, 1))
+      if (is.null(objective_weights)) {
+        objective_weights <- tuple(1, 1, 1)
+      } else {
+        objective_weights <- tuple(objective_weights[1], objective_weights[2], objective_weights[3])
+      }
+      optimizer$set_objective_weights(objective_weights)
     }
   }
 
@@ -561,7 +632,7 @@ robyn_mmm <- function(InputCollect,
               for (hypNameLoop in hyper_bound_list_updated_name) {
                 index <- which(hypNameLoop == hyper_bound_list_updated_name)
                 channelBound <- unlist(hyper_bound_list_updated[hypNameLoop])
-                hyppar_value <- signif(nevergrad_hp_val[[co]][index], 6)
+                hyppar_value <- signif(nevergrad_hp_val[[co]][index], 10)
                 if (length(channelBound) > 1) {
                   hypParamSamNG[hypNameLoop] <- qunif(hyppar_value, min(channelBound), max(channelBound))
                 } else {
@@ -628,6 +699,12 @@ robyn_mmm <- function(InputCollect,
             check_factor <- unlist(lapply(dt_sign, is.factor))
             lower.limits <- rep(0, length(prophet_signs))
             upper.limits <- rep(1, length(prophet_signs))
+            trend_loc <- which(colnames(x_train) == "trend")
+            if (length(trend_loc) > 0 & sum(x_train[, trend_loc]) < 0) {
+              trend_loc <- which(prophet_vars == "trend")
+              lower.limits[trend_loc] <- -1
+              upper.limits[trend_loc] <- 0
+            }
             for (s in (length(prophet_signs) + 1):length(x_sign)) {
               if (check_factor[s] == TRUE) {
                 level.n <- length(levels(unlist(dt_sign[, s, with = FALSE])))
@@ -841,7 +918,7 @@ robyn_mmm <- function(InputCollect,
               registerDoSEQ()
             }
             suppressPackageStartupMessages(
-              doparCollect <- foreach(i = 1:iterPar) %dorng% robyn_iterations(i)
+              doparCollect <- foreach(i = 1:iterPar, .options.RNG = seed) %dorng% robyn_iterations(i)
             )
           }
 
@@ -885,9 +962,11 @@ robyn_mmm <- function(InputCollect,
   )
 
   # stop cluster to avoid memory leaks
-  stopImplicitCluster()
-  registerDoSEQ()
-  getDoParWorkers()
+  if (cores > 1) {
+    stopImplicitCluster()
+    registerDoSEQ()
+    getDoParWorkers()
+  }
 
   if (!hyper_fixed) {
     cat("\r", paste("\n  Finished in", round(sysTimeDopar[3] / 60, 2), "mins"))
@@ -1094,8 +1173,8 @@ model_refit <- function(x_train, y_train, x_val, y_val, x_test, y_test,
   # Calculate all NRMSE
   nrmse_train <- sqrt(mean((y_train - y_train_pred)^2)) / (max(y_train) - min(y_train))
   if (!is.null(x_val)) {
-    nrmse_val <- sqrt(mean(sum((y_val - y_val_pred)^2))) / (max(y_val) - min(y_val))
-    nrmse_test <- sqrt(mean(sum((y_test - y_test_pred)^2))) / (max(y_test) - min(y_test))
+    nrmse_val <- sqrt(mean((y_val - y_val_pred)^2)) / (max(y_val) - min(y_val))
+    nrmse_test <- sqrt(mean((y_test - y_test_pred)^2)) / (max(y_test) - min(y_test))
   } else {
     nrmse_val <- nrmse_test <- y_val_pred <- y_test_pred <- NA
   }
@@ -1140,16 +1219,16 @@ lambda_seq <- function(x, y, seq_len = 100, lambda_min_ratio = 0.0001) {
   return(lambdas)
 }
 
-hyper_collector <- function(InputCollect, hyper_in, ts_validation, add_penalty_factor, dt_hyper_fixed = NULL, cores) {
+hyper_collector <- function(InputCollect, hyper_in, ts_validation, add_penalty_factor, dt_hyper_fixed = NULL, cores = 1) {
   # Fetch hyper-parameters based on media
-  hypParamSamName <- hyper_names(adstock = InputCollect$adstock, all_media = InputCollect$all_media)
+  hypParamSamName <- hyper_names(
+    adstock = InputCollect$adstock,
+    all_media = InputCollect$all_media,
+    all_vars = names(select(InputCollect$dt_mod, -c("ds", "dep_var")))
+  )
 
   # Manually add other hyper-parameters
   hypParamSamName <- c(hypParamSamName, HYPS_OTHERS)
-
-  # Add penalty factor hyper-parameters names
-  for_penalty <- names(select(InputCollect$dt_mod, -.data$ds, -.data$dep_var))
-  if (add_penalty_factor) hypParamSamName <- c(hypParamSamName, paste0("penalty_", for_penalty))
 
   # Check hyper_fixed condition + add lambda + penalty factor hyper-parameters names
   all_fixed <- check_hyper_fixed(InputCollect, dt_hyper_fixed, add_penalty_factor)
@@ -1159,16 +1238,15 @@ hyper_collector <- function(InputCollect, hyper_in, ts_validation, add_penalty_f
     # Collect media hyperparameters
     hyper_bound_list <- list()
     for (i in seq_along(hypParamSamName)) {
-      hyper_bound_list[i] <- hyper_in[hypParamSamName[i]]
-      names(hyper_bound_list)[i] <- hypParamSamName[i]
+      hyper_bound_list <- append(hyper_bound_list, hyper_in[hypParamSamName[i]])
     }
 
-    # Add unfixed lambda hyperparameter manually
-    if (length(hyper_bound_list[["lambda"]]) != 1) {
+    # Add lambda hyperparameter
+    if (!"lambda" %in% names(hyper_bound_list)) {
       hyper_bound_list$lambda <- c(0, 1)
     }
 
-    # Add unfixed train_size hyperparameter manually
+    # Add train_size hyperparameter
     if (ts_validation) {
       if (!"train_size" %in% names(hyper_bound_list)) {
         hyper_bound_list$train_size <- c(0.5, 0.8)
@@ -1185,22 +1263,26 @@ hyper_collector <- function(InputCollect, hyper_in, ts_validation, add_penalty_f
       message("Fitting time series with all available data...")
     }
 
-    # Add unfixed penalty.factor hyperparameters manually
+    # Add penalty factor hyperparameters
     for_penalty <- names(select(InputCollect$dt_mod, -.data$ds, -.data$dep_var))
     penalty_names <- paste0(for_penalty, "_penalty")
     if (add_penalty_factor) {
       for (penalty in penalty_names) {
-        if (length(hyper_bound_list[[penalty]]) != 1) {
+        if (!penalty %in% names(hyper_bound_list)) {
           hyper_bound_list[[penalty]] <- c(0, 1)
         }
       }
     }
 
     # Get hyperparameters for Nevergrad
-    hyper_bound_list_updated <- hyper_bound_list[which(unlist(lapply(hyper_bound_list, length) == 2))]
+    hyper_bound_list_updated <- hyper_bound_list[
+      which(unlist(lapply(hyper_bound_list, length) == 2))
+    ]
 
     # Get fixed hyperparameters
-    hyper_bound_list_fixed <- hyper_bound_list[which(unlist(lapply(hyper_bound_list, length) == 1))]
+    hyper_bound_list_fixed <- hyper_bound_list[
+      which(unlist(lapply(hyper_bound_list, length) == 1))
+    ]
 
     hyper_list_bind <- c(hyper_bound_list_updated, hyper_bound_list_fixed)
     hyper_list_all <- list()
@@ -1209,7 +1291,9 @@ hyper_collector <- function(InputCollect, hyper_in, ts_validation, add_penalty_f
       names(hyper_list_all)[i] <- hypParamSamName[i]
     }
 
-    dt_hyper_fixed_mod <- data.frame(bind_cols(lapply(hyper_bound_list_fixed, function(x) rep(x, cores))))
+    dt_hyper_fixed_mod <- data.frame(bind_cols(lapply(
+      hyper_bound_list_fixed, function(x) rep(x, cores)
+    )))
   } else {
     hyper_bound_list_fixed <- list()
     for (i in seq_along(hypParamSamName)) {
@@ -1218,8 +1302,9 @@ hyper_collector <- function(InputCollect, hyper_in, ts_validation, add_penalty_f
     }
 
     hyper_list_all <- hyper_bound_list_fixed
-    hyper_bound_list_updated <- hyper_bound_list_fixed[which(unlist(lapply(hyper_bound_list_fixed, length) == 2))]
-    cores <- 1
+    hyper_bound_list_updated <- hyper_bound_list_fixed[
+      which(unlist(lapply(hyper_bound_list_fixed, length) == 2))
+    ]
 
     dt_hyper_fixed_mod <- data.frame(matrix(hyper_bound_list_fixed, nrow = 1))
     names(dt_hyper_fixed_mod) <- names(hyper_bound_list_fixed)

@@ -23,56 +23,83 @@
 #' @examples
 #' \dontrun{
 #' # Having InputCollect and OutputCollect objects
+#' ## Recreate original saturation curve
+#' Response <- robyn_response(
+#'   InputCollect = InputCollect,
+#'   OutputCollect = OutputCollect,
+#'   select_model = select_model,
+#'   metric_name = "facebook_S"
+#' )
+#' Response$plot
 #'
-#' # Get marginal response (mResponse) and marginal ROI (mROI) for
-#' # the next 1k on 80k for search_S
-#' spend1 <- 80000
+#' ## Or you can call a JSON file directly (a bit slower)
+#' # Response <- robyn_response(
+#' #   json_file = "your_json_path.json",
+#' #   dt_input = dt_simulated_weekly,
+#' #   dt_holidays = dt_prophet_holidays,
+#' #   metric_name = "facebook_S"
+#' # )
+#'
+#' ## Get the "next 100 dollar" marginal response on Spend1
+#' Spend1 <- 20000
 #' Response1 <- robyn_response(
 #'   InputCollect = InputCollect,
 #'   OutputCollect = OutputCollect,
-#'   metric_name = "search_S",
-#'   metric_value = spend1
-#' )$response
-#' # Get ROI for 80k
-#' Response1 / spend1 # ROI for search 80k
+#'   select_model = select_model,
+#'   metric_name = "facebook_S",
+#'   metric_value = Spend1, # total budget for date_range
+#'   date_range = "last_1" # last two periods
+#' )
+#' Response1$plot
 #'
-#' # Get response for 81k
-#' spend2 <- spend1 + 1000
+#' Spend2 <- Spend1 + 100
 #' Response2 <- robyn_response(
 #'   InputCollect = InputCollect,
 #'   OutputCollect = OutputCollect,
-#'   metric_name = "search_S",
-#'   metric_value = spend2
-#' )$response
+#'   select_model = select_model,
+#'   metric_name = "facebook_S",
+#'   metric_value = Spend2,
+#'   date_range = "last_1"
+#' )
+#' # ROAS for the 100$ from Spend1 level
+#' (Response2$response_total - Response1$response_total) / (Spend2 - Spend1)
 #'
-#' # Get ROI for 81k
-#' Response2 / spend2 # ROI for search 81k
-#' # Get marginal response (mResponse) for the next 1k on 80k
-#' Response2 - Response1
-#' # Get marginal ROI (mROI) for the next 1k on 80k
-#' (Response2 - Response1) / (spend2 - spend1)
+#' ## Get response from for a given budget and date_range
+#' Spend3 <- 100000
+#' Response3 <- robyn_response(
+#'   InputCollect = InputCollect,
+#'   OutputCollect = OutputCollect,
+#'   select_model = select_model,
+#'   metric_name = "facebook_S",
+#'   metric_value = Spend3, # total budget for date_range
+#'   date_range = "last_5" # last 5 periods
+#' )
+#' Response3$plot
 #'
-#' # Example of getting paid media exposure response curves
-#' imps <- 1000000
+#' ## Example of getting paid media exposure response curves
+#' imps <- 10000000
 #' response_imps <- robyn_response(
 #'   InputCollect = InputCollect,
 #'   OutputCollect = OutputCollect,
+#'   select_model = select_model,
 #'   metric_name = "facebook_I",
 #'   metric_value = imps
-#' )$response
-#' response_per_1k_imps <- response_imps / imps * 1000
-#' response_per_1k_imps
+#' )
+#' response_imps$response_total / imps * 1000
+#' response_imps$plot
 #'
-#' # Get response for 80k for search_S from the a certain model SolID
-#' # in the current model output in the global environment
-#' robyn_response(
+#' ## Example of getting organic media exposure response curves
+#' sendings <- 30000
+#' response_sending <- robyn_response(
 #'   InputCollect = InputCollect,
 #'   OutputCollect = OutputCollect,
-#'   metric_name = "search_S",
-#'   metric_value = 80000,
-#'   dt_hyppar = OutputCollect$resultHypParam,
-#'   dt_coef = OutputCollect$xDecompAgg
+#'   select_model = select_model,
+#'   metric_name = "newsletter",
+#'   metric_value = sendings
 #' )
+#' # response per 1000 sendings
+#' response_sending$response_total / sendings * 1000
+#' response_sending$plot
 #' }
 #' @return List. Response value and plot. Class: \code{robyn_response}.
 #' @export
@@ -177,13 +204,14 @@ robyn_response <- function(InputCollect = NULL,
   all_values <- pull(dt_input, metric_name)
 
   if (usecase == "all_historical_vec") {
-    ds_list <- check_metric_dates(date_range = "all", all_dates, dayInterval, quiet, ...)
-    #val_list <- check_metric_value(metric_value, metric_name, all_values, ds_list$metric_loc)
+    ds_list <- check_metric_dates(date_range = "all", all_dates[1:endRW], dayInterval, quiet, ...)
+    metric_value <- NULL
+    # val_list <- check_metric_value(metric_value, metric_name, all_values, ds_list$metric_loc)
   } else if (usecase == "unit_metric_default_last_n") {
-    ds_list <- check_metric_dates(date_range = paste0("last_", length(metric_value)), all_dates, dayInterval, quiet, ...)
-    #val_list <- check_metric_value(metric_value, metric_name, all_values, ds_list$metric_loc)
+    ds_list <- check_metric_dates(date_range = paste0("last_", length(metric_value)), all_dates[1:endRW], dayInterval, quiet, ...)
+    # val_list <- check_metric_value(metric_value, metric_name, all_values, ds_list$metric_loc)
   } else {
-    ds_list <- check_metric_dates(date_range, all_dates, dayInterval, quiet, ...)
+    ds_list <- check_metric_dates(date_range, all_dates[1:endRW], dayInterval, quiet, ...)
   }
   val_list <- check_metric_value(metric_value, metric_name, all_values, ds_list$metric_loc)
   date_range_updated <- ds_list$date_range_updated
@@ -252,8 +280,13 @@ robyn_response <- function(InputCollect = NULL,
   m_adstockedRW <- m_adstocked[startRW:endRW]
   alpha <- head(dt_hyppar[dt_hyppar$solID == select_model, ][[paste0(hpm_name, "_alphas")]], 1)
   gamma <- head(dt_hyppar[dt_hyppar$solID == select_model, ][[paste0(hpm_name, "_gammas")]], 1)
-  metric_saturated_total <- saturation_hill(x = m_adstockedRW, alpha = alpha, gamma = gamma, x_marginal = input_total)
-  metric_saturated_carryover <- saturation_hill(x = m_adstockedRW, alpha = alpha, gamma = gamma, x_marginal = input_carryover)
+  if (usecase == "all_historical_vec") {
+    metric_saturated_total <- saturation_hill(x = m_adstockedRW, alpha = alpha, gamma = gamma)
+    metric_saturated_carryover <- saturation_hill(x = m_adstockedRW, alpha = alpha, gamma = gamma)
+  } else {
+    metric_saturated_total <- saturation_hill(x = m_adstockedRW, alpha = alpha, gamma = gamma, x_marginal = input_total)
+    metric_saturated_carryover <- saturation_hill(x = m_adstockedRW, alpha = alpha, gamma = gamma, x_marginal = input_carryover)
+  }
   metric_saturated_immediate <- metric_saturated_total - metric_saturated_carryover
 
   ## Decomp
@@ -265,11 +298,15 @@ robyn_response <- function(InputCollect = NULL,
   response_immediate <- response_total - response_carryover
 
   dt_line <- data.frame(metric = m_adstockedRW, response = m_resposne, channel = metric_name)
-  dt_point <- data.frame(input = input_total, output = response_total, ds = date_range_updated)
-
-  # Reference non-adstocked data when using updated metric values
-  dt_point_caov <- data.frame(input = input_carryover, output = response_carryover)
-  dt_point_imme <- data.frame(input = input_immediate, output = response_immediate)
+  if (usecase == "all_historical_vec") {
+    dt_point <- data.frame(input = input_total[startRW:endRW], output = response_total, ds = date_range_updated[startRW:endRW])
+    dt_point_caov <- data.frame(input = input_carryover[startRW:endRW], output = response_carryover)
+    dt_point_imme <- data.frame(input = input_immediate[startRW:endRW], output = response_immediate)
+  } else {
+    dt_point <- data.frame(input = input_total, output = response_total, ds = date_range_updated)
+    dt_point_caov <- data.frame(input = input_carryover, output = response_carryover)
+    dt_point_imme <- data.frame(input = input_immediate, output = response_immediate)
+  }
 
   ## Plot optimal response
   p_res <- ggplot(dt_line, aes(x = .data$metric, y = .data$response)) +
@@ -302,7 +339,7 @@ robyn_response <- function(InputCollect = NULL,
         ifelse(length(date_range_updated) > 1, paste0(" [", length(date_range_updated), " periods]"), "")
       )
     ) +
-    theme_lares() +
+    theme_lares(background = "white") +
     scale_x_abbr() +
     scale_y_abbr()
   if (length(unique(metric_value)) == 1) {
@@ -327,7 +364,7 @@ robyn_response <- function(InputCollect = NULL,
 }
 
 which_usecase <- function(metric_value, date_range) {
-  case_when(
+  usecase <- case_when(
     # Case 1: raw historical spend and all dates -> model decomp as out of the model (no mean spends)
     is.null(metric_value) & is.null(date_range) ~ "all_historical_vec",
     # Case 2: same as case 1 for date_range
@@ -340,6 +377,12 @@ which_usecase <- function(metric_value, date_range) {
     length(metric_value) > 1 & is.null(date_range) ~ "unit_metric_default_last_n",
     TRUE ~ "unit_metric_selected_dates"
   )
+  if (!is.null(date_range)) {
+    if (length(date_range) == 1 & as.character(date_range[1]) == "all") {
+      usecase <- "all_historical_vec"
+    }
+  }
+  return(usecase)
 }
 
 # ####### SCENARIOS CHECK FOR date_range

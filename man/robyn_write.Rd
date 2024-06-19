@@ -13,10 +13,10 @@ robyn_write(
   OutputCollect = NULL,
   select_model = NULL,
   dir = OutputCollect$plot_folder,
-  OutputModels = NULL,
+  add_data = TRUE,
   export = TRUE,
   quiet = FALSE,
-  all_sol_json = NULL,
+  pareto_df = NULL,
   ...
 )
 
@@ -38,35 +38,39 @@ into the JSON file?}
 
 \item{dir}{Character. Existing directory to export JSON file to.}
 
-\item{OutputModels}{\code{robyn_run()} output.}
+\item{add_data}{Boolean. Include raw dataset. Useful to recreate models
+with a single file containing all the required information (no need of CSV).}
 
 \item{export}{Boolean. Export outcomes into local files?}
 
 \item{quiet}{Boolean. Keep messages off?}
 
-\item{all_sol_json}{Dataframe. Add all pareto solutions to json.}
+\item{pareto_df}{Dataframe. Save all pareto solutions to json file.}
 
-\item{...}{Additional parameters.}
+\item{...}{Additional parameters to export into a custom Extras element.}
 
 \item{x}{\code{robyn_read()} or \code{robyn_write()} output.}
 
-\item{json_file}{Character. JSON file name to read and import as list.}
+\item{json_file}{Character. JSON file name to read and import.}
 
-\item{step}{Integer. 1 for import only and 2 for import and ouput.}
+\item{step}{Integer. 1 for import only and 2 for import and output.}
 }
 \value{
 (invisible) List. Contains all inputs and outputs of exported model.
 Class: \code{robyn_write}.
 }
 \description{
-\code{robyn_write()} generates a JSON file with all the information
-required to replicate a single Robyn model.
+\code{robyn_write()} generates light JSON files with all the information
+required to replicate Robyn models. Depending on user inputs, there are
+3 use cases: only the inputs data, input data + modeling results data,
+and input data, modeling results + specifics of a single selected model.
+To replicate a model, you must provide InputCollect, OutputCollect, and,
+if OutputCollect contains more than one model, the select_model.
 }
 \examples{
 \dontrun{
 InputCollectJSON <- robyn_inputs(
   dt_input = Robyn::dt_simulated_weekly,
-  dt_holidays = Robyn::dt_prophet_holidays,
   json_file = "~/Desktop/RobynModel-1_29_12.json"
 )
 print(InputCollectJSON)

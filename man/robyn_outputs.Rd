@@ -39,19 +39,34 @@ robyn_csv(
   calibrated = FALSE
 )
 
-robyn_plots(InputCollect, OutputCollect, export = TRUE, ...)
+robyn_plots(
+  InputCollect,
+  OutputCollect,
+  export = TRUE,
+  plot_folder = OutputCollect$plot_folder,
+  ...
+)
 
 robyn_onepagers(
   InputCollect,
   OutputCollect,
   select_model = NULL,
   quiet = FALSE,
-  export = TRUE
+  export = TRUE,
+  plot_folder = OutputCollect$plot_folder,
+  baseline_level = 0,
+  ...
 )
 
 ts_validation(OutputModels, quiet = FALSE, ...)
 
-decomp_plot(InputCollect, OutputCollect, solID = NULL, exclude = NULL)
+decomp_plot(
+  InputCollect,
+  OutputCollect,
+  solID = NULL,
+  exclude = NULL,
+  baseline_level = 0
+)
 }
 \arguments{
 \item{InputCollect, OutputModels}{\code{robyn_inputs()} and \code{robyn_run()}
@@ -67,11 +82,11 @@ candidates. To customize this threshold, set value with \code{min_candidates}.}
 calibrating, 0.1 means top 10% calibrated models are used for pareto-optimal
 selection. Lower \code{calibration_constraint} increases calibration accuracy.}
 
-\item{plot_folder}{Character. Path for saving plots. Default
+\item{plot_folder}{Character. Path for saving plots and files. Default
 to \code{robyn_object} and saves plot in the same directory as \code{robyn_object}.}
 
 \item{plot_folder_sub}{Character. Sub path for saving plots. Will overwrite the
-default path with timestamp.}
+default path with timestamp or, for refresh and allocator, simply overwrite files.}
 
 \item{plot_pareto}{Boolean. Set to \code{FALSE} to deactivate plotting
 and saving model one-pagers. Used when testing models.}
@@ -89,7 +104,7 @@ wish to plot the one-pagers and export? Default will take top
 
 \item{export}{Boolean. Export outcomes into local files?}
 
-\item{all_sol_json}{Logical. Add all solutions to json export.}
+\item{all_sol_json}{Logical. Add all pareto solutions to json export?}
 
 \item{quiet}{Boolean. Keep messages off?}
 
@@ -102,6 +117,12 @@ wish to plot the one-pagers and export? Default will take top
 \item{OutputCollect}{\code{robyn_run(..., export = FALSE)} output.}
 
 \item{calibrated}{Logical}
+
+\item{baseline_level}{Integer, from 0 to 5. Aggregate baseline variables,
+depending on the level of aggregation you need. Default is 0 for no
+aggregation. 1 for Intercept only. 2 adding trend. 3 adding all prophet
+decomposition variables. 4. Adding contextual variables. 5 Adding organic
+variables. Results will be reflected on the waterfall chart.}
 
 \item{solID}{Character vector. Model IDs to plot.}
 
@@ -125,7 +146,7 @@ outcomes on \code{robyn_run()} results. When \code{UI=TRUE}, enriched
 \code{OutputModels} results with additional plots and objects.
 
 Create a plot to visualize the convergence for each of the datasets
-when time-series validation is enabled when running \code{robyn_run()}.
+when running \code{robyn_run()}, especially useful for when using ts_validation.
 As a reference, the closer the test and validation convergence points are,
 the better, given the time-series wasn't overfitted.
 }

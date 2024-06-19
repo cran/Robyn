@@ -4,14 +4,16 @@
 \alias{hyper_names}
 \title{Get correct hyperparameter names}
 \usage{
-hyper_names(adstock, all_media)
+hyper_names(adstock, all_media, all_vars = NULL)
 }
 \arguments{
-\item{adstock}{A character. Default to \code{InputCollect$adstock}.
+\item{adstock}{Character. Default to \code{InputCollect$adstock}.
 Accepts "geometric", "weibull_cdf" or "weibull_pdf"}
 
-\item{all_media}{A character vector. Default to \code{InputCollect$all_media}.
-Includes \code{InputCollect$paid_media_vars} and \code{InputCollect$organic_vars}.}
+\item{all_media}{Character vector. Default to \code{InputCollect$all_media}.
+Includes \code{InputCollect$paid_media_spends} and \code{InputCollect$organic_vars}.}
+
+\item{all_vars}{Used to check the penalties inputs, especially for refreshing models.}
 }
 \value{
 Character vector. Names of hyper-parameters that should be defined.
@@ -30,24 +32,24 @@ hyperparameters that is inserted into \code{robyn_inputs(hyperparameters = ...)}
    needs to be specified in \code{paid_media_spends} specifically. Run \code{hyper_names()}
    to get correct hyperparameter names. All names in hyperparameters must
    equal names from \code{hyper_names()}, case sensitive.
-   \item{Get guidance for setting hyperparameter bounds:
+   \item Get guidance for setting hyperparameter bounds:
    For geometric adstock, use theta, alpha & gamma. For both weibull adstock options,
-   use shape, scale, alpha, gamma.}
+   use shape, scale, alpha, gamma.
    \itemize{
-   \item{Theta: }{In geometric adstock, theta is decay rate. guideline for usual media genre:
-   TV c(0.3, 0.8), OOH/Print/Radio c(0.1, 0.4), digital c(0, 0.3)}
-   \item{Shape: }{In weibull adstock, shape controls the decay shape. Recommended c(0.0001, 2).
+     \item Theta: In geometric adstock, theta is decay rate. guideline for usual media genre:
+   TV c(0.3, 0.8), OOH/Print/Radio c(0.1, 0.4), digital c(0, 0.3)
+     \item Shape: In weibull adstock, shape controls the decay shape. Recommended c(0.0001, 2).
    The larger, the more S-shape. The smaller, the more L-shape. Channel-type specific
-   values still to be investigated}
-   \item{Scale: }{In weibull adstock, scale controls the decay inflexion point. Very conservative
+   values still to be investigated
+     \item Scale: In weibull adstock, scale controls the decay inflexion point. Very conservative
    recommended bounce c(0, 0.1), because scale can increase adstocking half-life greatly.
-   Channel-type specific values still to be investigated}
-   \item{Gamma: }{In s-curve transformation with hill function, gamma controls the inflexion point.
+   Channel-type specific values still to be investigated
+     \item Gamma: In s-curve transformation with hill function, gamma controls the inflexion point.
    Recommended bounce c(0.3, 1). The larger the gamma, the later the inflection point
-   in the response curve}
+   in the response curve
    }
-   \item{Set each hyperparameter bounds. They either contains two values e.g. c(0, 0.5),
-   or only one value (in which case you've "fixed" that hyperparameter)}
+   \item Set each hyperparameter bounds. They either contains two values e.g. c(0, 0.5),
+   or only one value (in which case you've "fixed" that hyperparameter)
 }
 }
 

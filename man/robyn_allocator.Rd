@@ -16,13 +16,16 @@ robyn_allocator(
   scenario = "max_response",
   total_budget = NULL,
   target_value = NULL,
-  date_range = NULL,
+  date_range = "all",
   channel_constr_low = NULL,
   channel_constr_up = NULL,
   channel_constr_multiplier = 3,
   optim_algo = "SLSQP_AUGLAG",
   maxeval = 1e+05,
   constr_mode = "eq",
+  plots = TRUE,
+  plot_folder = NULL,
+  plot_folder_sub = NULL,
   export = TRUE,
   quiet = FALSE,
   ui = FALSE,
@@ -52,8 +55,10 @@ is provided, \code{select_model} defaults to the already selected \code{SolID}. 
 \code{InputCollect} and \code{OutputCollect}, and must be one of
 \code{OutputCollect$allSolutions}.}
 
-\item{json_file}{Character. JSON file to import previously exported inputs
-(needs \code{dt_input} and \code{dt_holidays} parameters too).}
+\item{json_file}{Character. JSON file to import previously exported inputs or
+recreate a model. To generate this file, use \code{robyn_write()}.
+If you didn't export your data in the json file as "raw_data",
+\code{dt_input} must be provided; \code{dt_holidays} input is optional.}
 
 \item{scenario}{Character. Accepted options are: \code{"max_response"}, \code{"target_efficiency"}.
 Scenario \code{"max_response"} answers the question:
@@ -72,9 +77,9 @@ target_value is the desired ROAS or CPA with no upper spend limit. Default is se
 initial ROAS or 120\% of initial CPA, when \code{"target_value = NULL"}.}
 
 \item{date_range}{Character. Date(s) to apply adstocked transformations and pick mean spends
-per channel. Set one of: NULL, "all", "last", or "last_n" (where
+per channel. Set one of: "all", "last", or "last_n" (where
 n is the last N dates available), date (i.e. "2022-03-27"), or date range
-(i.e. \code{c("2022-01-01", "2022-12-31")}). Default NULL will use last month's worth of data.}
+(i.e. \code{c("2022-01-01", "2022-12-31")}). Default to "all".}
 
 \item{channel_constr_low, channel_constr_up}{Numeric vectors. The lower and upper bounds
 for each paid media variable when maximizing total media response. For example,
@@ -101,6 +106,14 @@ Defaults to 100000.}
 
 \item{constr_mode}{Character. Options are \code{"eq"} or \code{"ineq"},
 indicating constraints with equality or inequality.}
+
+\item{plots}{Boolean. Generate plots?}
+
+\item{plot_folder}{Character. Path for saving plots and files. Default
+to \code{robyn_object} and saves plot in the same directory as \code{robyn_object}.}
+
+\item{plot_folder_sub}{Character. Sub path for saving plots. Will overwrite the
+default path with timestamp or, for refresh and allocator, simply overwrite files.}
 
 \item{export}{Boolean. Export outcomes into local files?}
 

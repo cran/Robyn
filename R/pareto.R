@@ -10,7 +10,7 @@ robyn_pareto <- function(InputCollect, OutputModels,
                          quiet = FALSE,
                          calibrated = FALSE,
                          ...) {
-  hyper_fixed <- attr(OutputModels, "hyper_fixed")
+  hyper_fixed <- OutputModels$hyper_fixed
   OutModels <- OutputModels[unlist(lapply(OutputModels, function(x) "resultCollect" %in% names(x)))]
 
   resultHypParam <- bind_rows(lapply(OutModels, function(x) {
@@ -111,7 +111,10 @@ robyn_pareto <- function(InputCollect, OutputModels,
 
   # Prepare parallel loop
   if (TRUE) {
-    if (check_parallel() & OutputModels$cores > 1) registerDoParallel(OutputModels$cores) else registerDoSEQ()
+    if (OutputModels$cores > 1) {
+      registerDoParallel(OutputModels$cores)
+      registerDoSEQ()
+    }
     if (hyper_fixed) pareto_fronts <- 1
     # Get at least 100 candidates for better clustering
     if (nrow(resultHypParam) == 1) pareto_fronts <- 1
@@ -155,13 +158,15 @@ robyn_pareto <- function(InputCollect, OutputModels,
   run_dt_resp <- function(respN, InputCollect, OutputModels, decompSpendDistPar, resultHypParamPar, xDecompAggPar, ...) {
     get_solID <- decompSpendDistPar$solID[respN]
     get_spendname <- decompSpendDistPar$rn[respN]
-    get_nPeriod <- nrow(InputCollect$dt_modRollWind)
+    startRW <- InputCollect$rollingWindowStartWhich
+    endRW <- InputCollect$rollingWindowEndWhich
 
     get_resp <- robyn_response(
-      select_model = decompSpendDistPar$solID[respN],
-      metric_name = decompSpendDistPar$rn[respN],
-      metric_value = decompSpendDistPar$mean_spend[respN],
+      select_model = get_solID,
+      metric_name = get_spendname,
+      # metric_value = decompSpendDistPar$total_spend[respN],
       # date_range = range(InputCollect$dt_modRollWind$ds),
+      date_range = "all",
       dt_hyppar = resultHypParamPar,
       dt_coef = xDecompAggPar,
       InputCollect = InputCollect,
@@ -171,10 +176,30 @@ robyn_pareto <- function(InputCollect, OutputModels,
     )
     # Median value (but must be within the curve)
     # med_in_curve <- sort(get_resp$response_total)[round(length(get_resp$response_total) / 2)]
-    mean_response <- get_resp$response_total
-    mean_spend_adstocked <- get_resp$input_total
-    mean_carryover <- get_resp$input_carryover
 
+    ## simulate mean response adstock from get_resp$input_carryover
+    # mean_response <- mean(get_resp$response_total)
+    mean_spend_adstocked <- mean(get_resp$input_total[startRW:endRW])
+    mean_carryover <- mean(get_resp$input_carryover[startRW:endRW])
+    dt_hyppar <- resultHypParamPar %>% filter(.data$solID == get_solID)
+    chnAdstocked <- data.frame(v1 = get_resp$input_total[startRW:endRW])
+    colnames(chnAdstocked) <- get_spendname
+    dt_coef <- xDecompAggPar %>%
+      filter(.data$solID == get_solID & .data$rn == get_spendname) %>%
+      select(c("rn", "coef"))
+    hills <- get_hill_params(
+      InputCollect, NULL, dt_hyppar, dt_coef,
+      mediaSpendSorted = get_spendname,
+      select_model = get_solID, chnAdstocked
+    )
+    mean_response <- fx_objective(
+      x = decompSpendDistPar$mean_spend[respN],
+      coeff = hills$coefs_sorted,
+      alpha = hills$alphas,
+      inflexion = hills$inflexions,
+      x_hist_carryover = mean_carryover,
+      get_sum = FALSE
+    )
     dt_resp <- data.frame(
       mean_response = mean_response,
       mean_spend_adstocked = mean_spend_adstocked,
@@ -191,8 +216,6 @@ robyn_pareto <- function(InputCollect, OutputModels,
       run_dt_resp(respN, InputCollect, OutputModels, decompSpendDistPar, resultHypParamPar, xDecompAggPar, ...)
     }
     stopImplicitCluster()
-    registerDoSEQ()
-    getDoParWorkers()
   } else {
     resp_collect <- bind_rows(lapply(seq_along(decompSpendDistPar$rn), function(respN) {
       run_dt_resp(respN, InputCollect, OutputModels, decompSpendDistPar, resultHypParamPar, xDecompAggPar, ...)
@@ -385,7 +408,7 @@ robyn_pareto <- function(InputCollect, OutputModels,
         )
       }
       dt_transformSaturationDecomp <- dt_transformSaturation
-      for (i in 1:InputCollect$mediaVarCount) {
+      for (i in seq_along(InputCollect$all_media)) {
         coef <- plotWaterfallLoop$coef[plotWaterfallLoop$rn == InputCollect$all_media[i]]
         dt_transformSaturationDecomp[InputCollect$all_media[i]] <- coef *
           dt_transformSaturationDecomp[InputCollect$all_media[i]]
@@ -396,7 +419,7 @@ robyn_pareto <- function(InputCollect, OutputModels,
 
       ## Reverse MM fitting
       # dt_transformSaturationSpendReverse <- copy(dt_transformAdstock[, c("ds", InputCollect$all_media), with = FALSE])
-      # for (i in 1:InputCollect$mediaVarCount) {
+      # for (i in seq_along(InputCollect$paid_media_spends)) {
       #   chn <- InputCollect$paid_media_vars[i]
       #   if (chn %in% InputCollect$paid_media_vars[InputCollect$exposure_selector]) {
       #     # Get Michaelis Menten nls fitting param
@@ -574,8 +597,7 @@ robyn_pareto <- function(InputCollect, OutputModels,
     df_caov_pct_all = df_caov_pct_all
   )
 
-  # if (check_parallel()) stopImplicitCluster()
-  # close(pbplot)
+  if (OutputModels$cores > 1) stopImplicitCluster()
 
   return(pareto_results)
 }

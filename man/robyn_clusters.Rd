@@ -7,8 +7,11 @@
 robyn_clusters(
   input,
   dep_var_type,
+  cluster_by = "hyperparameters",
   all_media = NULL,
   k = "auto",
+  wss_var = 0.06,
+  max_clusters = 10,
   limit = 1,
   weights = rep(1, 3),
   dim_red = "PCA",
@@ -24,10 +27,19 @@ robyn_clusters(
 \item{dep_var_type}{Character. For dep_var_type 'revenue', ROI is used for clustering.
 For conversion', CPA is used for clustering.}
 
-\item{all_media}{A character vector. Default to \code{InputCollect$all_media}.
-Includes \code{InputCollect$paid_media_vars} and \code{InputCollect$organic_vars}.}
+\item{cluster_by}{Character. Any of: "performance" or "hyperparameters".}
+
+\item{all_media}{Character vector. Default to \code{InputCollect$all_media}.
+Includes \code{InputCollect$paid_media_spends} and \code{InputCollect$organic_vars}.}
 
 \item{k}{Integer. Number of clusters}
+
+\item{wss_var}{Numeric. Used to pick automatic \code{k} value,
+when \code{k} is \code{NULL} based on WSS variance while considering
+\code{limit} clusters. Values between (0, 1). Default value could be
+0.05 to consider convergence.}
+
+\item{max_clusters}{Integer. Maximum number of clusters.}
 
 \item{limit}{Integer. Top N results per cluster. If kept in "auto", will select k
 as the cluster in which the WSS variance was less than 5\%.}

@@ -135,7 +135,7 @@ adstock_weibull <- function(x, shape, scale, windlen = length(x), type = "cdf") 
     if (shape == 0 | scale == 0) {
       x_decayed <- x
       thetaVecCum <- thetaVec <- rep(0, windlen)
-      x_imme <- NULL
+      x_imme <- x
     } else {
       if ("cdf" %in% tolower(type)) {
         thetaVec <- c(1, 1 - pweibull(head(x_bin, -1), shape = shape, scale = scaleTrans)) # plot(thetaVec)
@@ -162,8 +162,8 @@ adstock_weibull <- function(x, shape, scale, windlen = length(x), type = "cdf") 
     x_decayed = x_decayed,
     thetaVecCum = thetaVecCum,
     inflation_total = inflation_total,
-    x_imme = x_imme)
-  )
+    x_imme = x_imme
+  ))
 }
 
 #' @rdname adstocks
@@ -258,7 +258,7 @@ plot_adstock <- function(plot = TRUE) {
         x = "Time unit",
         y = "Media decay accumulated"
       ) +
-      theme_lares(pal = 2)
+      theme_lares(background = "white", pal = 2)
 
     ## Plot weibull
     weibullCollect <- list()
@@ -272,8 +272,10 @@ plot_adstock <- function(plot = TRUE) {
           dt_weibull <- data.frame(
             x = 1:100,
             decay_accumulated = adstock_weibull(
-              1:100, shape = shapeVec[v1], scale = scaleVec[v2],
-              type = tolower(types[t]))$thetaVecCum,
+              1:100,
+              shape = shapeVec[v1], scale = scaleVec[v2],
+              type = tolower(types[t])
+            )$thetaVecCum,
             shape = paste0("shape=", shapeVec[v1]),
             scale = as.factor(scaleVec[v2]),
             type = types[t]
@@ -299,7 +301,7 @@ plot_adstock <- function(plot = TRUE) {
         x = "Time unit",
         y = "Media decay accumulated"
       ) +
-      theme_lares(pal = 2)
+      theme_lares(background = "white", pal = 2)
     return(wrap_plots(A = p1, B = p2, design = "ABB"))
   }
 }
@@ -336,7 +338,7 @@ plot_saturation <- function(plot = TRUE) {
         title = "Cost response with hill function",
         subtitle = "Alpha changes while gamma = 0.5"
       ) +
-      theme_lares(pal = 2)
+      theme_lares(background = "white", pal = 2)
 
     ## Plot gammas
     hillGammaCollect <- list()
@@ -355,7 +357,7 @@ plot_saturation <- function(plot = TRUE) {
         title = "Cost response with hill function",
         subtitle = "Gamma changes while alpha = 2"
       ) +
-      theme_lares(pal = 2)
+      theme_lares(background = "white", pal = 2)
 
     return(p1 + p2)
   }
@@ -369,9 +371,9 @@ run_transformations <- function(InputCollect, hypParamSam, adstock) {
   dt_modAdstocked <- select(InputCollect$dt_mod, -.data$ds)
 
   mediaAdstocked <- list()
-  mediaImmediate <- list()
-  mediaCarryover <- list()
-  mediaVecCum <- list()
+  # mediaImmediate <- list()
+  # mediaCarryover <- list()
+  # mediaVecCum <- list()
   mediaSaturated <- list()
   mediaSaturatedImmediate <- list()
   mediaSaturatedCarryover <- list()
@@ -393,9 +395,9 @@ run_transformations <- function(InputCollect, hypParamSam, adstock) {
     m_adstocked <- x_list$x_decayed
     mediaAdstocked[[v]] <- m_adstocked
     m_carryover <- m_adstocked - m_imme
-    mediaImmediate[[v]] <- m_imme
-    mediaCarryover[[v]] <- m_carryover
-    mediaVecCum[[v]] <- x_list$thetaVecCum
+    # mediaImmediate[[v]] <- m_imme
+    # mediaCarryover[[v]] <- m_carryover
+    # mediaVecCum[[v]] <- x_list$thetaVecCum
 
     ################################################
     ## 2. Saturation (only window data)
@@ -417,15 +419,14 @@ run_transformations <- function(InputCollect, hypParamSam, adstock) {
     # plot(m_adstockedRollWind, mediaSaturated[[1]])
   }
 
-  names(mediaAdstocked) <- names(mediaImmediate) <- names(mediaCarryover) <- names(mediaVecCum) <-
-    names(mediaSaturated) <- names(mediaSaturatedImmediate) <- names(mediaSaturatedCarryover) <-
-    all_media
+  names(mediaAdstocked) <- names(mediaSaturated) <- names(mediaSaturatedImmediate) <-
+    names(mediaSaturatedCarryover) <- all_media
   dt_modAdstocked <- dt_modAdstocked %>%
     select(-all_of(all_media)) %>%
     bind_cols(mediaAdstocked)
-  dt_mediaImmediate <- bind_cols(mediaImmediate)
-  dt_mediaCarryover <- bind_cols(mediaCarryover)
-  mediaVecCum <- bind_cols(mediaVecCum)
+  # dt_mediaImmediate <- bind_cols(mediaImmediate)
+  # dt_mediaCarryover <- bind_cols(mediaCarryover)
+  # mediaVecCum <- bind_cols(mediaVecCum)
   dt_modSaturated <- dt_modAdstocked[rollingWindowStartWhich:rollingWindowEndWhich, ] %>%
     select(-all_of(all_media)) %>%
     bind_cols(mediaSaturated)

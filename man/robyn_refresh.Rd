@@ -15,11 +15,13 @@ robyn_refresh(
   refresh_mode = "manual",
   refresh_iters = 1000,
   refresh_trials = 3,
+  bounds_freedom = NULL,
   plot_folder = NULL,
   plot_pareto = TRUE,
   version_prompt = FALSE,
   export = TRUE,
   calibration_input = NULL,
+  objective_weights = NULL,
   ...
 )
 
@@ -28,8 +30,10 @@ robyn_refresh(
 \method{plot}{robyn_refresh}(x, ...)
 }
 \arguments{
-\item{json_file}{Character. JSON file to import previously exported inputs
-(needs \code{dt_input} and \code{dt_holidays} parameters too).}
+\item{json_file}{Character. JSON file to import previously exported inputs or
+recreate a model. To generate this file, use \code{robyn_write()}.
+If you didn't export your data in the json file as "raw_data",
+\code{dt_input} must be provided; \code{dt_holidays} input is optional.}
 
 \item{robyn_object}{Character or List. Path of the \code{Robyn.RDS} object
 that contains all previous modeling information or the imported list.}
@@ -60,7 +64,12 @@ still needs to be investigated.}
 \item{refresh_trials}{Integer. Trials per refresh. Defaults to 5 trials.
 More reliable recommendation still needs to be investigated.}
 
-\item{plot_folder}{Character. Path for saving plots. Default
+\item{bounds_freedom}{Numeric. Percentage of freedom we'd like to allow for the
+new hyperparameters values compared with the model to be refreshed.
+If set to NULL (default) the value will be calculated as
+refresh_steps / rollingWindowLength. Applies to all hyperparameters.}
+
+\item{plot_folder}{Character. Path for saving plots and files. Default
 to \code{robyn_object} and saves plot in the same directory as \code{robyn_object}.}
 
 \item{plot_pareto}{Boolean. Set to \code{FALSE} to deactivate plotting
@@ -80,6 +89,13 @@ You can calibrate any spend or organic variable with a well designed experiment.
 You can also use experimental results from multiple channels; to do so,
 provide concatenated channel value, i.e. "channel_A+channel_B".
 Check "Guide for calibration source" section.}
+
+\item{objective_weights}{Numeric vector. Default to NULL to give equal weights
+to all objective functions. Order: NRMSE, DECOMP.RSSD, MAPE (when calibration
+data is provided). When you are not calibrating, only the first 2 values for
+\code{objective_weights} must be defined, i.e. set c(2, 1) to give double weight
+to the 1st (NRMSE). This is an experimental feature. There's no research on
+optimal weight setting. Subjective weights might strongly bias modeling results.}
 
 \item{...}{Additional parameters to overwrite original custom parameters
 passed into initial model.}

@@ -13,16 +13,17 @@ robyn_run(
   add_penalty_factor = FALSE,
   refresh = FALSE,
   seed = 123L,
-  outputs = FALSE,
   quiet = FALSE,
   cores = NULL,
   trials = 5,
   iterations = 2000,
   rssd_zero_penalty = TRUE,
+  objective_weights = NULL,
   nevergrad_algo = "TwoPointsDE",
   intercept = TRUE,
   intercept_sign = "non_negative",
   lambda_control = NULL,
+  outputs = FALSE,
   ...
 )
 
@@ -36,8 +37,10 @@ Required when \code{robyn_object} is not provided.}
 old model results. It consumes hyperparameters from saved csv
 \code{pareto_hyperparameters.csv} or JSON file to replicate a model.}
 
-\item{json_file}{Character. JSON file to import previously exported inputs
-(needs \code{dt_input} and \code{dt_holidays} parameters too).}
+\item{json_file}{Character. JSON file to import previously exported inputs or
+recreate a model. To generate this file, use \code{robyn_write()}.
+If you didn't export your data in the json file as "raw_data",
+\code{dt_input} must be provided; \code{dt_holidays} input is optional.}
 
 \item{ts_validation}{Boolean. When set to \code{TRUE}, Robyn will split data
 by test, train, and validation partitions to validate the time series. By
@@ -57,8 +60,6 @@ more iterations to converge.}
 
 \item{seed}{Integer. For reproducible results when running nevergrad.}
 
-\item{outputs}{Boolean. Process results with \code{robyn_outputs()}?}
-
 \item{quiet}{Boolean. Keep messages off?}
 
 \item{cores}{Integer. Default to \code{parallel::detectCores() - 1} (all cores
@@ -76,6 +77,13 @@ In other words, given the same DECOMP.RSSD score, a model with 50\% 0-coef
 variables will get penalized by DECOMP.RSSD * 1.5 (larger error), while
 another model with no 0-coef variables gets un-penalized with DECOMP.RSSD * 1.}
 
+\item{objective_weights}{Numeric vector. Default to NULL to give equal weights
+to all objective functions. Order: NRMSE, DECOMP.RSSD, MAPE (when calibration
+data is provided). When you are not calibrating, only the first 2 values for
+\code{objective_weights} must be defined, i.e. set c(2, 1) to give double weight
+to the 1st (NRMSE). This is an experimental feature. There's no research on
+optimal weight setting. Subjective weights might strongly bias modeling results.}
+
 \item{nevergrad_algo}{Character. Default to "TwoPointsDE". Options are
 \code{c("DE","TwoPointsDE", "OnePlusOne", "DoubleFastGADiscreteOnePlusOne",
 "DiscreteOnePlusOne", "PortfolioDiscreteOnePlusOne", "NaiveTBPSA",
@@ -90,6 +98,10 @@ and refit the model. Consider changing intercept_sign to "unconstrained" when
 there are \code{context_vars} with large positive values.}
 
 \item{lambda_control}{Deprecated in v3.6.0.}
+
+\item{outputs}{Boolean. If set to TRUE, will run \code{robyn_run()} and
+\code{robyn_outputs()}, returning a list with OutputModels and
+OutputCollect results.}
 
 \item{...}{Additional parameters passed to \code{robyn_outputs()}.}
 
@@ -108,12 +120,11 @@ runs \code{robyn_mmm()}, and collects all modeling results.
 \examples{
 \dontrun{
 # Having InputCollect results
-OutputCollect <- robyn_run(
+OutputModels <- robyn_run(
   InputCollect = InputCollect,
   cores = 2,
   iterations = 200,
-  trials = 1,
-  outputs = FALSE
+  trials = 1
 )
 }
 }

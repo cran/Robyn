@@ -33,27 +33,28 @@
 #' @param dt_holidays data.frame. Raw input holiday data. Load standard
 #' Prophet holidays using \code{data("dt_prophet_holidays")}
 #' @param date_var Character. Name of date variable. Daily, weekly
-#' and monthly data supported. Weekly requires week-start of Monday or Sunday.
+#' and monthly data supported.
 #' \code{date_var} must have format "2020-01-01" (YYY-MM-DD).
 #' Default to automatic date detection.
 #' @param dep_var Character. Name of dependent variable. Only one allowed
 #' @param dep_var_type Character. Type of dependent variable
 #' as "revenue" or "conversion". Will be used to calculate ROI or CPI,
 #' respectively. Only one allowed and case sensitive.
-#' @param paid_media_spends Character vector. When using exposure level
-#' metrics (impressions, clicks, GRP etc) in \code{paid_media_vars}, provide
-#' corresponding spends for ROAS calculation. For spend metrics in
-#' \code{paid_media_vars}, use the same name. \code{media_spend_vars} must
-#' have same order and same length as \code{paid_media_vars}.
-#' @param paid_media_vars Character vector. Recommended to use exposure
-#' level metrics (impressions, clicks, GRP etc) other than spend. Also
-#' recommended to split media channel into sub-channels
-#' (e.g. fb_retargeting, fb_prospecting, etc.) to gain more variance.
-#' \code{paid_media_vars} only accepts numerical variable.
+#' @param paid_media_spends Character vector. Names of the paid media variables.
+#' The values on each of these variables must be numeric. Also,
+#' \code{paid_media_spends} must have same order and length as
+#' \code{paid_media_vars} respectively.
+#' @param paid_media_vars Character vector. Names of the paid media variables'
+#' exposure level metrics (impressions, clicks, GRP etc) other than spend.
+#' The values on each of these variables must be numeric. These variables are not
+#' being used to train the model but to check relationship and recommend to
+#' split media channels into sub-channels (e.g. fb_retargeting, fb_prospecting,
+#' etc.) to gain more variance. \code{paid_media_vars} must have same
+#' order and length as \code{paid_media_spends} respectively and is not required.
 #' @param paid_media_signs Character vector. Choose any of
 #' \code{c("default", "positive", "negative")}. Control
-#' the signs of coefficients for paid_media_vars. Must have same
-#' order and same length as \code{paid_media_vars}. By default it's
+#' the signs of coefficients for \code{paid_media_vars}. Must have same
+#' order and same length as \code{paid_media_vars}. By default, all values are
 #' set to 'positive'.
 #' @param context_vars Character vector. Typically competitors,
 #' price & promotion, temperature, unemployment rate, etc.
@@ -63,26 +64,26 @@
 #' order and same length as \code{context_vars}. By default it's
 #' set to 'defualt'.
 #' @param organic_vars Character vector. Typically newsletter sendings,
-#' push-notifications, social media posts etc. Compared to paid_media_vars
-#' organic_vars are often  marketing activities without clear spends.
+#' push-notifications, social media posts etc. Compared to \code{paid_media_vars}
+#' \code{organic_vars} are often marketing activities without clear spends.
 #' @param organic_signs Character vector. Choose any of
 #' "default", "positive", "negative". Control
-#' the signs of coefficients for organic_signs. Must have same
-#' order and same length as \code{organic_vars}. By default it's
+#' the signs of coefficients for \code{organic_vars} Must have same
+#' order and same length as \code{organic_vars}. By default, all values are
 #' set to "positive".
 #' @param factor_vars Character vector. Specify which of the provided
 #' variables in organic_vars or context_vars should be forced as a factor.
 #' @param prophet_vars Character vector. Include any of "trend",
-#' "season", "weekday", "holiday" or NULL. Highly recommended
+#' "season", "weekday", "monthly", "holiday" or NULL. Highly recommended
 #' to use all for daily data and "trend", "season", "holiday" for
 #' weekly and above cadence. Set to NULL to skip prophet's functionality.
 #' @param prophet_signs Character vector. Choose any of
 #' "default", "positive", "negative". Control
-#' the signs of coefficients for prophet variables. Must have same
-#' order and same length as \code{prophet_vars}. By default it's
+#' the signs of coefficients for \code{prophet_vars}. Must have same
+#' order and same length as \code{prophet_vars}. By default, all values are
 #' set to "default".
-#' @param prophet_country Character. Only one country allowed once.
-#' Including national holidays for 59 countries, whose list can
+#' @param prophet_country Character. Only one country allowed.
+#' Includes national holidays for all countries, whose list can
 #' be found loading \code{data("dt_prophet_holidays")}.
 #' @param adstock Character. Choose any of "geometric", "weibull_cdf",
 #' "weibull_pdf". Weibull adstock is a two-parametric function and thus more
@@ -118,8 +119,10 @@
 #' Check "Guide for calibration source" section.
 #' @param InputCollect Default to NULL. \code{robyn_inputs}'s output when
 #' \code{hyperparameters} are not yet set.
-#' @param json_file Character. JSON file to import previously exported inputs
-#' (needs \code{dt_input} and \code{dt_holidays} parameters too).
+#' @param json_file Character. JSON file to import previously exported inputs or
+#' recreate a model. To generate this file, use \code{robyn_write()}.
+#' If you didn't export your data in the json file as "raw_data",
+#' \code{dt_input} must be provided; \code{dt_holidays} input is optional.
 #' @param ... Additional parameters passed to \code{prophet} functions.
 #' @examples
 #' # Using dummy simulated data
@@ -150,21 +153,21 @@
 #' Class: \code{robyn_inputs}.
 #' @export
 robyn_inputs <- function(dt_input = NULL,
-                         dt_holidays = Robyn::dt_prophet_holidays,
-                         date_var = "auto",
                          dep_var = NULL,
                          dep_var_type = NULL,
-                         prophet_vars = NULL,
-                         prophet_signs = NULL,
-                         prophet_country = NULL,
-                         context_vars = NULL,
-                         context_signs = NULL,
+                         date_var = "auto",
                          paid_media_spends = NULL,
                          paid_media_vars = NULL,
                          paid_media_signs = NULL,
                          organic_vars = NULL,
                          organic_signs = NULL,
+                         context_vars = NULL,
+                         context_signs = NULL,
                          factor_vars = NULL,
+                         dt_holidays = Robyn::dt_prophet_holidays,
+                         prophet_vars = NULL,
+                         prophet_signs = NULL,
+                         prophet_country = NULL,
                          adstock = NULL,
                          hyperparameters = NULL,
                          window_start = NULL,
@@ -176,7 +179,16 @@ robyn_inputs <- function(dt_input = NULL,
   ### Use case 3: running robyn_inputs() with json_file
   if (!is.null(json_file)) {
     json <- robyn_read(json_file, step = 1, ...)
-    if (is.null(dt_input) || is.null(dt_holidays)) stop("Provide 'dt_input' and 'dt_holidays'")
+    if (is.null(dt_input)) {
+      if ("raw_data" %in% names(json[["Extras"]])) {
+        dt_input <- as_tibble(json[["Extras"]]$raw_data)
+      } else {
+        stop("Must provide 'dt_input' input; 'dt_holidays' input optional")
+      }
+    }
+    if (!is.null(hyperparameters)) {
+      warning("Replaced hyperparameters input with json_file's fixed hyperparameters values")
+    }
     for (i in seq_along(json$InputCollect)) {
       assign(names(json$InputCollect)[i], json$InputCollect[[i]])
     }
@@ -185,13 +197,7 @@ robyn_inputs <- function(dt_input = NULL,
   ### Use case 1: running robyn_inputs() for the first time
   if (is.null(InputCollect)) {
     dt_input <- as_tibble(dt_input)
-    # if (!is.null(dt_holidays)) dt_holidays <- as_tibble(dt_holidays) %>%
-    # mutate(ds = as.Date(.data$ds, origin = "1970-01-01"))
     if (!is.null(dt_holidays)) dt_holidays <- as_tibble(dt_holidays)
-
-    ## Check for NA values
-    check_nas(dt_input)
-    check_nas(dt_holidays)
 
     ## Check vars names (duplicates and valid)
     check_varnames(
@@ -200,6 +206,11 @@ robyn_inputs <- function(dt_input = NULL,
       context_vars, paid_media_spends,
       organic_vars
     )
+
+    ## Check for NA and all negative values
+    dt_input <- check_allneg(dt_input)
+    check_nas(dt_input, c(paid_media_vars, paid_media_spends, context_vars, organic_vars))
+    check_nas(dt_holidays)
 
     ## Check date input (and set dayInterval and intervalType)
     date_input <- check_datevar(dt_input, date_var)
@@ -221,11 +232,10 @@ robyn_inputs <- function(dt_input = NULL,
     context <- check_context(dt_input, context_vars, context_signs)
     context_signs <- context$context_signs
 
-    ## Check paid media variables (set mediaVarCount and maybe transform paid_media_signs)
+    ## Check paid media variables (and maybe transform paid_media_signs)
     if (is.null(paid_media_vars)) paid_media_vars <- paid_media_spends
     paidmedia <- check_paidmedia(dt_input, paid_media_vars, paid_media_signs, paid_media_spends)
     paid_media_signs <- paidmedia$paid_media_signs
-    mediaVarCount <- paidmedia$mediaVarCount
     exposure_vars <- paid_media_vars[!(paid_media_vars == paid_media_spends)]
 
     ## Check organic media variables (and maybe transform organic_signs)
@@ -233,7 +243,7 @@ robyn_inputs <- function(dt_input = NULL,
     organic_signs <- organic$organic_signs
 
     ## Check factor_vars
-    factor_vars <- check_factorvars(dt_input, factor_vars, context_vars, organic_vars)
+    factor_vars <- check_factorvars(dt_input, factor_vars, context_vars)
 
     ## Check all vars
     all_media <- c(paid_media_spends, organic_vars)
@@ -245,9 +255,7 @@ robyn_inputs <- function(dt_input = NULL,
 
     ## Check window_start & window_end (and transform parameters/data)
     windows <- check_windows(dt_input, date_var, all_media, window_start, window_end)
-
     if (TRUE) {
-      dt_input <- windows$dt_input
       window_start <- windows$window_start
       rollingWindowStartWhich <- windows$rollingWindowStartWhich
       refreshAddedStart <- windows$refreshAddedStart
@@ -273,6 +281,16 @@ robyn_inputs <- function(dt_input = NULL,
     # Check for no-variance columns on raw data (after removing not-used)
     check_novar(select(dt_input, -all_of(unused_vars)))
 
+    # Calculate total media spend used to model
+    paid_media_total <- dt_input %>%
+      mutate(temp_date = dt_input[[date_var]]) %>%
+      filter(
+        .data$temp_date >= window_start,
+        .data$temp_date <= window_end
+      ) %>%
+      select(all_of(paid_media_spends)) %>%
+      sum()
+
     ## Collect input
     InputCollect <- list(
       dt_input = dt_input,
@@ -293,7 +311,7 @@ robyn_inputs <- function(dt_input = NULL,
       paid_media_vars = paid_media_vars,
       paid_media_signs = paid_media_signs,
       paid_media_spends = paid_media_spends,
-      mediaVarCount = mediaVarCount,
+      paid_media_total = paid_media_total,
       exposure_vars = exposure_vars,
       organic_vars = organic_vars,
       organic_signs = organic_signs,
@@ -306,6 +324,7 @@ robyn_inputs <- function(dt_input = NULL,
       window_end = window_end,
       rollingWindowEndWhich = rollingWindowEndWhich,
       rollingWindowLength = rollingWindowLength,
+      totalObservations = nrow(windows$dt_input),
       refreshAddedStart = refreshAddedStart,
       adstock = adstock,
       hyperparameters = hyperparameters,
@@ -319,7 +338,8 @@ robyn_inputs <- function(dt_input = NULL,
 
       ## Check hyperparameters
       hyperparameters <- check_hyperparameters(
-        hyperparameters, adstock, paid_media_spends, organic_vars, exposure_vars
+        hyperparameters, adstock, paid_media_spends, organic_vars,
+        exposure_vars, prophet_vars, context_vars
       )
       InputCollect <- robyn_engineering(InputCollect, ...)
     }
@@ -360,8 +380,10 @@ robyn_inputs <- function(dt_input = NULL,
     # Check for no-variance columns (after filtering modeling window)
     dt_mod_model_window <- InputCollect$dt_mod %>%
       select(-any_of(InputCollect$unused_vars)) %>%
-      filter(.data$ds >= InputCollect$window_start,
-             .data$ds <= InputCollect$window_end)
+      filter(
+        .data$ds >= InputCollect$window_start,
+        .data$ds <= InputCollect$window_end
+      )
     check_novar(dt_mod_model_window, InputCollect)
   }
 
@@ -393,7 +415,7 @@ print.robyn_inputs <- function(x, ...) {
   mod_vars <- paste(setdiff(names(x$dt_mod), c("ds", "dep_var")), collapse = ", ")
   print(glued(
     "
-Total Observations: {nrow(x$dt_input)} ({x$intervalType}s)
+Total Observations: {x$totalObservations} ({x$intervalType}s)
 Input Table Columns ({ncol(x$dt_input)}):
   Date: {x$date_var}
   Dependent: {x$dep_var} [{x$dep_var_type}]
@@ -415,8 +437,11 @@ Adstock: {x$adstock}
     range = paste(range(x$dt_input[, x$date_var][[1]]), collapse = ":"),
     windows = paste(x$window_start, x$window_end, sep = ":"),
     custom_params = if (length(x$custom_params) > 0) paste("\n", flatten_hyps(x$custom_params)) else "None",
-    prophet = if (!is.null(x$prophet_vars)) {
-      sprintf("%s on %s", paste(x$prophet_vars, collapse = ", "), x$prophet_country)
+    prophet = if (length(x$prophet_vars) > 0) {
+      sprintf(
+        "%s on %s", paste(x$prophet_vars, collapse = ", "),
+        ifelse(!is.null(x$prophet_country), x$prophet_country, "data")
+      )
     } else {
       "\033[0;31mDeactivated\033[0m"
     },
@@ -452,24 +477,24 @@ Adstock: {x$adstock}
 #'    needs to be specified in \code{paid_media_spends} specifically. Run \code{hyper_names()}
 #'    to get correct hyperparameter names. All names in hyperparameters must
 #'    equal names from \code{hyper_names()}, case sensitive.
-#'    \item{Get guidance for setting hyperparameter bounds:
+#'    \item Get guidance for setting hyperparameter bounds:
 #'    For geometric adstock, use theta, alpha & gamma. For both weibull adstock options,
-#'    use shape, scale, alpha, gamma.}
+#'    use shape, scale, alpha, gamma.
 #'    \itemize{
-#'    \item{Theta: }{In geometric adstock, theta is decay rate. guideline for usual media genre:
-#'    TV c(0.3, 0.8), OOH/Print/Radio c(0.1, 0.4), digital c(0, 0.3)}
-#'    \item{Shape: }{In weibull adstock, shape controls the decay shape. Recommended c(0.0001, 2).
+#'      \item Theta: In geometric adstock, theta is decay rate. guideline for usual media genre:
+#'    TV c(0.3, 0.8), OOH/Print/Radio c(0.1, 0.4), digital c(0, 0.3)
+#'      \item Shape: In weibull adstock, shape controls the decay shape. Recommended c(0.0001, 2).
 #'    The larger, the more S-shape. The smaller, the more L-shape. Channel-type specific
-#'    values still to be investigated}
-#'    \item{Scale: }{In weibull adstock, scale controls the decay inflexion point. Very conservative
+#'    values still to be investigated
+#'      \item Scale: In weibull adstock, scale controls the decay inflexion point. Very conservative
 #'    recommended bounce c(0, 0.1), because scale can increase adstocking half-life greatly.
-#'    Channel-type specific values still to be investigated}
-#'    \item{Gamma: }{In s-curve transformation with hill function, gamma controls the inflexion point.
+#'    Channel-type specific values still to be investigated
+#'      \item Gamma: In s-curve transformation with hill function, gamma controls the inflexion point.
 #'    Recommended bounce c(0.3, 1). The larger the gamma, the later the inflection point
-#'    in the response curve}
+#'    in the response curve
 #'    }
-#'    \item{Set each hyperparameter bounds. They either contains two values e.g. c(0, 0.5),
-#'    or only one value (in which case you've "fixed" that hyperparameter)}
+#'    \item Set each hyperparameter bounds. They either contains two values e.g. c(0, 0.5),
+#'    or only one value (in which case you've "fixed" that hyperparameter)
 #' }
 #'
 #' @section Helper plots:
@@ -480,10 +505,11 @@ Adstock: {x$adstock}
 #' helping you understand hill/alpha/gamma transformation}
 #' }
 #'
-#' @param adstock A character. Default to \code{InputCollect$adstock}.
+#' @param adstock Character. Default to \code{InputCollect$adstock}.
 #' Accepts "geometric", "weibull_cdf" or "weibull_pdf"
-#' @param all_media A character vector. Default to \code{InputCollect$all_media}.
-#' Includes \code{InputCollect$paid_media_vars} and \code{InputCollect$organic_vars}.
+#' @param all_media Character vector. Default to \code{InputCollect$all_media}.
+#' Includes \code{InputCollect$paid_media_spends} and \code{InputCollect$organic_vars}.
+#' @param all_vars Used to check the penalties inputs, especially for refreshing models.
 #' @examples
 #' \donttest{
 #' media <- c("facebook_S", "print_S", "tv_S")
@@ -521,7 +547,7 @@ Adstock: {x$adstock}
 #' }
 #' @return Character vector. Names of hyper-parameters that should be defined.
 #' @export
-hyper_names <- function(adstock, all_media) {
+hyper_names <- function(adstock, all_media, all_vars = NULL) {
   adstock <- check_adstock(adstock)
   if (adstock == "geometric") {
     local_name <- sort(apply(expand.grid(all_media, HYPS_NAMES[
@@ -531,6 +557,9 @@ hyper_names <- function(adstock, all_media) {
     local_name <- sort(apply(expand.grid(all_media, HYPS_NAMES[
       grepl("shapes|scales|alphas|gammas", HYPS_NAMES)
     ]), 1, paste, collapse = "_"))
+  }
+  if (!is.null(all_vars)) {
+    local_name <- sort(c(local_name, paste0(all_vars, "_penalty")))
   }
   return(local_name)
 }
@@ -603,7 +632,7 @@ robyn_engineering <- function(x, quiet = FALSE, ...) {
     mediaCostFactor <- colSums(subset(dt_inputRollWind, select = paid_media_spends), na.rm = TRUE) /
       colSums(subset(dt_inputRollWind, select = paid_media_vars), na.rm = TRUE)
 
-    for (i in 1:InputCollect$mediaVarCount) {
+    for (i in seq_along(paid_media_spends)) {
       if (exposure_selector[i]) {
         # Run models (NLS and/or LM)
         dt_spendModInput <- subset(dt_inputRollWind, select = c(paid_media_spends[i], paid_media_vars[i]))
@@ -645,7 +674,7 @@ robyn_engineering <- function(x, quiet = FALSE, ...) {
             caption = caption,
             color = "Model"
           ) +
-          theme_lares(legend = "top") +
+          theme_lares(background = "white", legend = "top") +
           scale_x_abbr() +
           scale_y_abbr()
 
@@ -686,7 +715,7 @@ robyn_engineering <- function(x, quiet = FALSE, ...) {
         paste(
           "NOTE: potential improvement on splitting channels for better exposure fitting.",
           "Threshold (Minimum R2) =", threshold,
-          "\n  Check: InputCollect$plotNLSCollect outputs"
+          "\n  Check: InputCollect$modNLS$plots outputs"
         ),
         "\n  Weak relationship for: ", v2t(these), " and their spend"
       )
@@ -732,6 +761,7 @@ robyn_engineering <- function(x, quiet = FALSE, ...) {
       prophet_signs = InputCollect$prophet_signs,
       factor_vars = factor_vars,
       context_vars = InputCollect$context_vars,
+      organic_vars = InputCollect$organic_vars,
       paid_media_spends = paid_media_spends,
       intervalType = InputCollect$intervalType,
       dayInterval = InputCollect$dayInterval,
@@ -772,7 +802,7 @@ robyn_engineering <- function(x, quiet = FALSE, ...) {
 #' @return A list containing all prophet decomposition output.
 prophet_decomp <- function(dt_transform, dt_holidays,
                            prophet_country, prophet_vars, prophet_signs,
-                           factor_vars, context_vars, paid_media_spends,
+                           factor_vars, context_vars, organic_vars, paid_media_spends,
                            intervalType, dayInterval, custom_params) {
   check_prophet(dt_holidays, prophet_country, prophet_vars, prophet_signs, dayInterval)
   recurrence <- select(dt_transform, .data$ds, .data$dep_var) %>% rename("y" = "dep_var")
@@ -784,12 +814,12 @@ prophet_decomp <- function(dt_transform, dt_holidays,
   use_weekday <- "weekday" %in% prophet_vars | "weekly.seasonality" %in% prophet_vars
 
   dt_regressors <- bind_cols(recurrence, select(
-    dt_transform, all_of(c(context_vars, paid_media_spends))
+    dt_transform, all_of(c(paid_media_spends, context_vars, organic_vars))
   )) %>%
     mutate(ds = as.Date(.data$ds))
 
   prophet_params <- list(
-    holidays = if (use_holiday) holidays[holidays$country == prophet_country, ] else NULL,
+    holidays = if (use_holiday) holidays[holidays$country %in% prophet_country, ] else NULL,
     yearly.seasonality = ifelse("yearly.seasonality" %in% names(custom_params),
       custom_params[["yearly.seasonality"]],
       use_season
@@ -961,7 +991,6 @@ set_holidays <- function(dt_transform, dt_holidays, intervalType) {
 
   if (intervalType == "week") {
     weekStartInput <- lubridate::wday(dt_transform$ds[1], week_start = 1)
-    if (!weekStartInput %in% c(1, 7)) stop("Week start has to be Monday or Sunday")
     holidays <- dt_holidays %>%
       mutate(ds = floor_date(as.Date(.data$ds, origin = "1970-01-01"), unit = "week", week_start = weekStartInput)) %>%
       select(.data$ds, .data$holiday, .data$country, .data$year) %>%
@@ -975,7 +1004,7 @@ set_holidays <- function(dt_transform, dt_holidays, intervalType) {
     }
     holidays <- dt_holidays %>%
       # mutate(ds = cut(.data$ds, intervalType)) %>%
-      mutate(ds = cut(.data$ds, intervalType)) %>%
+      mutate(ds = cut(as.Date(.data$ds, origin = "1970-01-01"), intervalType)) %>%
       select(.data$ds, .data$holiday, .data$country, .data$year) %>%
       group_by(.data$ds, .data$country, .data$year) %>%
       summarise(holiday = paste(.data$holiday, collapse = ", "), n = n())
