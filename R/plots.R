@@ -130,15 +130,14 @@ robyn_plots <- function(
           ),
           x = "NRMSE",
           y = "DECOMP.RSSD",
-          colour = "Iterations",
-          size = "MAPE",
-          alpha = NULL
+          colour = "Iterations"
         ) +
         theme_lares(background = "white", )
       # Add MAPE dimension when calibrated
       if (calibrated) {
         pParFront <- pParFront +
-          geom_point(data = resultHypParam, aes(size = .data$mape, alpha = 1 - .data$mape))
+          geom_point(data = resultHypParam, aes(size = .data$mape, alpha = 1 - .data$mape)) +
+          labs(size = "MAPE", alpha = NULL)
       } else {
         pParFront <- pParFront + geom_point()
       }
@@ -174,7 +173,7 @@ robyn_plots <- function(
     if (length(temp_all) > 0) {
       xDecompAgg <- temp_all$xDecompAgg
       dt_ridges <- xDecompAgg %>%
-        filter(.data$rn %in% InputCollect$paid_media_spends) %>%
+        filter(.data$rn %in% InputCollect$paid_media_vars) %>%
         mutate(iteration = (.data$iterNG - 1) * OutputCollect$cores + .data$iterPar) %>%
         select(variables = .data$rn, .data$roi_total, .data$iteration, .data$trial) %>%
         arrange(.data$iteration, .data$variables)
@@ -317,7 +316,7 @@ robyn_onepagers <- function(
 
     plotMediaShare <- filter(
       xDecompAgg, .data$robynPareto == pf,
-      .data$rn %in% InputCollect$paid_media_spends
+      .data$rn %in% InputCollect$paid_media_vars
     )
     uniqueSol <- unique(plotMediaShare$solID)
 
@@ -473,7 +472,7 @@ robyn_onepagers <- function(
           geom_line(aes(color = .data$channel)) +
           facet_wrap(~ .data$channel) +
           geom_hline(yintercept = 0.5, linetype = "dashed", color = "gray") +
-          geom_text(aes(x = max(.data$x), y = 0.5, vjust = -0.5, hjust = 1, label = "Halflife"), colour = "gray") +
+          annotate("text", x = max(weibullCollect$x), y = 0.5, vjust = -0.5, hjust = 1, label = "Halflife", colour = "gray") +
           theme_lares(background = "white", legend = "none", grid = "Xx") +
           labs(
             title = paste("Weibull", wb_type, "Adstock: Flexible Rate Over Time"),
@@ -482,15 +481,48 @@ robyn_onepagers <- function(
       }
 
       ## 4. Response curves
-      dt_scurvePlot <- temp[[sid]]$plot4data$dt_scurvePlot
+      # dt_scurvePlot <- temp[[sid]]$plot4data$dt_scurvePlot
       dt_scurvePlotMean <- temp[[sid]]$plot4data$dt_scurvePlotMean
+      curves_data <- lapply(dt_scurvePlotMean$channel, function(x) {
+        robyn_response(
+          InputCollect, OutputCollect,
+          select_model = sid,
+          metric_name = x,
+          metric_value = dt_scurvePlotMean$mean_spend[dt_scurvePlotMean$channel == x],
+          date_range = "all",
+          quiet = TRUE
+        )
+      })
+      dt_scurvePlotMean$mean_response_carryover <- unlist(
+        lapply(curves_data, function(x) x$mean_response_carryover)
+      )
+      dt_scurvePlot <- bind_rows(lapply(curves_data, function(x) x$plot$data)) %>%
+        rename("spend" = "metric") %>%
+        bind_rows(data.frame(
+          channel = dt_scurvePlotMean$channel, spend = 0, response = 0
+        )) %>%
+        left_join(
+          select(
+            dt_scurvePlotMean,
+            c("channel", "mean_spend", "mean_spend_adstocked", "mean_response_carryover")
+          ),
+          by = "channel"
+        )
+      # points_proxy <- bind_rows(lapply(curves_data, function(x)
+      #   data.frame(spend = mean(x$input_total),
+      #              response = x$mean_response))) %>%
+      #   mutate(channel = dt_scurvePlotMean$channel)
+      points_proxy <- dt_scurvePlot %>%
+        group_by(.data$channel) %>%
+        slice(which.min(abs(.data$mean_spend_adstocked - .data$spend)))
+
       trim_rate <- 1.3 # maybe enable as a parameter
       if (trim_rate > 0) {
         dt_scurvePlot <- dt_scurvePlot %>%
           filter(
             .data$spend < max(dt_scurvePlotMean$mean_spend_adstocked) * trim_rate,
             .data$response < max(dt_scurvePlotMean$mean_response) * trim_rate,
-            .data$channel %in% InputCollect$paid_media_spends
+            .data$channel %in% InputCollect$paid_media_vars
           ) %>%
           left_join(
             dt_scurvePlotMean[, c("channel", "mean_carryover")], "channel"
@@ -499,22 +531,24 @@ robyn_onepagers <- function(
       if (!"channel" %in% colnames(dt_scurvePlotMean)) {
         dt_scurvePlotMean$channel <- dt_scurvePlotMean$rn
       }
+
       p4 <- ggplot(
         dt_scurvePlot, aes(x = .data$spend, y = .data$response, color = .data$channel)
       ) +
         geom_line() +
         geom_area(
-          data = group_by(dt_scurvePlot, .data$channel) %>% filter(.data$spend <= .data$mean_carryover),
+          data = group_by(dt_scurvePlot, .data$channel) %>%
+            filter(.data$response <= .data$mean_response_carryover),
           aes(x = .data$spend, y = .data$response, color = .data$channel),
-          stat = "identity", position = "stack", size = 0.1,
+          stat = "identity", position = "stack", linewidth = 0.1,
           fill = "grey50", alpha = 0.4, show.legend = FALSE
         ) +
-        geom_point(data = dt_scurvePlotMean, aes(
-          x = .data$mean_spend_adstocked, y = .data$mean_response, color = .data$channel
+        geom_point(data = points_proxy, aes(
+          x = .data$spend, y = .data$response, color = .data$channel
         )) +
         geom_text(
-          data = dt_scurvePlotMean, aes(
-            x = .data$mean_spend_adstocked, y = .data$mean_response, color = .data$channel,
+          data = points_proxy, aes(
+            x = .data$spend, y = .data$response, color = .data$channel,
             label = formatNum(.data$mean_spend_adstocked, 2, abbr = TRUE)
           ),
           show.legend = FALSE, hjust = -0.2
@@ -534,7 +568,6 @@ robyn_onepagers <- function(
       ## 5. Fitted vs actual
       xDecompVecPlotMelted <- temp[[sid]]$plot5data$xDecompVecPlotMelted %>%
         mutate(
-          linetype = ifelse(.data$variable == "predicted", "solid", "dotted"),
           variable = stringr::str_to_title(.data$variable),
           ds = as.Date(.data$ds, origin = "1970-01-01")
         )
@@ -542,7 +575,7 @@ robyn_onepagers <- function(
         xDecompVecPlotMelted,
         aes(x = .data$ds, y = .data$value, color = .data$variable)
       ) +
-        geom_path(aes(linetype = .data$linetype), size = 0.6) +
+        geom_path(aes(linetype = .data$variable), linewidth = 0.5) +
         theme_lares(background = "white", legend = "top", pal = 2) +
         scale_y_abbr() +
         guides(linetype = "none") +
@@ -581,17 +614,20 @@ robyn_onepagers <- function(
 
       ## 6. Diagnostic: fitted vs residual
       xDecompVecPlot <- temp[[sid]]$plot6data$xDecompVecPlot
-      p6 <- qplot(x = .data$predicted, y = .data$actual - .data$predicted, data = xDecompVecPlot) +
+      p6 <- ggplot(xDecompVecPlot, aes(x = .data$predicted, y = .data$actual - .data$predicted)) +
+        geom_point() +
         geom_hline(yintercept = 0) +
         geom_smooth(se = TRUE, method = "loess", formula = "y ~ x") +
-        scale_x_abbr() + scale_y_abbr() +
+        scale_x_abbr() +
+        scale_y_abbr() +
         theme_lares(background = "white", ) +
         labs(x = "Fitted", y = "Residual", title = "Fitted vs. Residual")
 
       ## 7. Immediate vs carryover
       df_imme_caov <- temp[[sid]]$plot7data
       p7 <- df_imme_caov %>%
-        mutate(type = factor(.data$type, levels = c("Carryover", "Immediate"))) %>%
+        replace(is.na(.), 0) %>%
+        mutate(type = factor(.data$type, levels = c("Immediate", "Carryover"))) %>%
         ggplot(aes(
           x = .data$percentage, y = .data$rn, fill = reorder(.data$type, as.integer(.data$type)),
           label = paste0(round(.data$percentage * 100), "%")
@@ -819,13 +855,17 @@ allocation_plots <- function(
       .data$value / dplyr::first(.data$value)
     })
   metric_vals <- if (metric == "ROAS") resp_metric$total_roi else resp_metric$total_cpa
+  resp_delta <- df_roi %>%
+    group_by(.data$type) %>%
+    summarise(resp_delta = unique(.data$total_response_lift)) %>%
+    pull(resp_delta)
   labs <- paste(
     paste(levs2, "\n"),
     paste("Spend:", formatNum(
       100 * (resp_metric$total_spend - resp_metric$total_spend[1]) / resp_metric$total_spend[1],
       signif = 3, pos = "%", sign = TRUE
     )),
-    unique(paste("Resp:", formatNum(100 * df_roi$total_response_lift, signif = 3, pos = "%", sign = TRUE))),
+    paste("Resp:", formatNum(100 * resp_delta, signif = 3, pos = "%", sign = TRUE)),
     paste(metric, ":", round(metric_vals, 2)),
     sep = "\n"
   )
@@ -1064,7 +1104,7 @@ allocation_plots <- function(
     ggplot() +
     scale_x_abbr() +
     scale_y_abbr() +
-    geom_line(aes(x = .data$spend, y = .data$total_response), show.legend = FALSE, size = 0.5) +
+    geom_line(aes(x = .data$spend, y = .data$total_response), show.legend = FALSE, linewidth = 0.5) +
     facet_wrap(.data$constr_label ~ ., scales = "free", ncol = 3) +
     geom_area(
       data = group_by(plotDT_scurve, .data$constr_label) %>%
@@ -1098,7 +1138,7 @@ allocation_plots <- function(
       title = paste0("Simulated Response Curve per ", str_to_title(InputCollect$intervalType)),
       x = sprintf("Spend** per %s (grey area: mean historical carryover)", InputCollect$intervalType),
       y = sprintf("Total Response [%s]", InputCollect$dep_var_type),
-      shape = NULL, color = NULL, fill = NULL,
+      color = NULL, fill = NULL,
       caption = caption
     )
 
@@ -1324,7 +1364,6 @@ refresh_plots_json <- function(json_file, plot_folder = NULL, listInit = NULL, d
   if (!is.null(df)) {
     xDecompVecPlotMelted <- df$plot5data$xDecompVecPlotMelted %>%
       mutate(
-        linetype = ifelse(.data$variable == "predicted", "solid", "dotted"),
         variable = stringr::str_to_title(.data$variable),
         ds = as.Date(.data$ds, origin = "1970-01-01")
       )
@@ -1332,7 +1371,7 @@ refresh_plots_json <- function(json_file, plot_folder = NULL, listInit = NULL, d
       solID = names(chainData),
       window_start = as.Date(unlist(lapply(chainData, function(x) x$InputCollect$window_start)), origin = "1970-01-01"),
       window_end = as.Date(unlist(lapply(chainData, function(x) x$InputCollect$window_end)), origin = "1970-01-01"),
-      duration = unlist(lapply(chainData, function(x) x$InputCollect$refresh_steps))
+      duration = c(0, unlist(lapply(chainData, function(x) x$InputCollect$refresh_steps)))
     ) %>%
       mutate(days = .data$window_end - .data$window_start) %>%
       filter(.data$duration > 0) %>%
@@ -1350,7 +1389,7 @@ refresh_plots_json <- function(json_file, plot_folder = NULL, listInit = NULL, d
       )) %>%
       as_tibble()
     outputs[["pFitRF"]] <- pFitRF <- ggplot(xDecompVecPlotMelted) +
-      geom_path(aes(x = .data$ds, y = .data$value, color = .data$variable, linetype = .data$linetype), size = 0.6) +
+      geom_path(aes(x = .data$ds, y = .data$value, color = .data$variable, linetype = .data$variable), linewidth = 0.5) +
       geom_rect(
         data = dt_refreshDates,
         aes(
@@ -1426,7 +1465,7 @@ refresh_plots_json <- function(json_file, plot_folder = NULL, listInit = NULL, d
     mutate(perfpoint = ifelse(is.infinite(.data$perfpoint), NA, .data$perfpoint)) %>%
     ggplot(aes(y = .data$variable)) +
     facet_wrap(. ~ .data$label, scales = "free") +
-    geom_vline(xintercept = 1, alpha = 0.8, linetype = "dashed", size = 0.5, colour = "#39638b") +
+    geom_vline(xintercept = 1, alpha = 0.8, linetype = "dashed", linewidth = 0.5, colour = "#39638b") +
     geom_col(aes(x = .data$colsize), na.rm = TRUE) +
     geom_text(
       aes(
@@ -1544,9 +1583,11 @@ ts_validation <- function(OutputModels, quiet = FALSE, ...) {
 
   get_height <- max(resultHypParam$trial)
   pw <- (pNRMSE / pIters) +
-    patchwork::plot_annotation(title = "Time-series validation & Convergence") +
-    patchwork::plot_layout(heights = c(get_height, 1), guides = "collect") &
-    theme_lares(background = "white", legend = "top")
+    patchwork::plot_annotation(
+      title = "Time-series validation & Convergence",
+      theme = theme_lares(background = "white", legend = "top")
+    ) +
+    patchwork::plot_layout(heights = c(get_height, 1), guides = "collect")
   return(pw)
 }
 
@@ -1570,6 +1611,7 @@ decomp_plot <- function(
   ))
   varType <- str_to_title(InputCollect$dep_var_type)
   pal <- names(lares::lares_pal()$palette)
+
   df <- OutputCollect$xDecompVecCollect[OutputCollect$xDecompVecCollect$solID %in% solID, ] %>%
     select(
       "solID", "ds", "dep_var", any_of("intercept"),
@@ -1579,24 +1621,73 @@ decomp_plot <- function(
     filter(!.data$variable %in% exclude) %>%
     mutate(variable = ifelse(
       .data$variable %in% bvars, paste0("Baseline_L", baseline_level), as.character(.data$variable)
-    )) %>%
+    ))
+
+  # Sort variables by baseline first & amount of absolute impact
+  levs <- df %>%
+    group_by(.data$variable) %>%
+    summarise(impact = sum(abs(.data$value))) %>%
+    mutate(is_baseline = grepl("Baseline_L", .data$variable)) %>%
+    arrange(desc(.data$is_baseline), desc(.data$impact)) %>%
+    filter(.data$impact > 0) %>%
+    pull(.data$variable)
+  df <- df %>%
     group_by(.data$solID, .data$ds, .data$variable) %>%
     summarise(
       value = sum(.data$value, na.rm = TRUE),
       value = sum(.data$value, na.rm = TRUE),
       .groups = "drop"
     ) %>%
-    arrange(abs(.data$value)) %>%
-    mutate(variable = factor(.data$variable, levels = unique(.data$variable)))
-  p <- ggplot(df, aes(x = .data$ds, y = .data$value, fill = .data$variable)) +
+    filter(.data$variable %in% levs) %>%
+    mutate(variable = factor(.data$variable, levels = rev(levs)))
+
+  p <- ggplot(df, aes(x = as.character(.data$ds), y = .data$value, fill = .data$variable)) +
     facet_grid(.data$solID ~ .) +
     labs(
       title = paste(varType, "Decomposition by Variable"),
       x = NULL, y = paste(intType, varType), fill = NULL
     ) +
-    geom_area() +
+    geom_col(width = 1) +
     theme_lares(background = "white", legend = "right") +
+    geom_hline(yintercept = 0) +
     scale_fill_manual(values = rev(pal[seq(length(unique(df$variable)))])) +
-    scale_y_abbr()
+    scale_y_abbr() +
+    # Must create custom splits because dates is character to be able to be bars
+    scale_x_discrete(
+      breaks = get_evenly_separated_dates(df$ds, n = 6),
+      labels = function(x) format(as.Date(x), "%m/%y")
+    )
   return(p)
+}
+
+# Custom plot for geom_density interval
+geom_density_ci <- function(
+    gg_density, # ggplot object that contains geom_density
+    ci_low,
+    ci_up,
+    fill = "grey") {
+  build_object <- ggplot_build(gg_density)
+  x_dens <- build_object$data[[1]]$x
+  y_dens <- build_object$data[[1]]$y
+  ind_low <- min(which(x_dens >= ci_low))
+  ind_up <- max(which(x_dens <= ci_up))
+
+  gg_density <- gg_density +
+    geom_area(
+      data = data.frame(
+        x = x_dens[ind_low:ind_up],
+        density = y_dens[ind_low:ind_up]
+      ),
+      aes(x = .data$x, y = .data$density),
+      fill = fill,
+      alpha = 0.6
+    )
+  return(gg_density)
+}
+
+get_evenly_separated_dates <- function(dates, n = 6) {
+  dates <- sort(dates)
+  indices <- round(seq(1, length(dates), length.out = n))
+  selected_dates <- dates[indices]
+  return(as.character(selected_dates))
 }

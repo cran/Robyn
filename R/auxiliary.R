@@ -94,3 +94,53 @@ baseline_vars <- function(InputCollect, baseline_level) {
   }
   return(x)
 }
+
+# Calculate dot product
+.dot_product <- function(range, proportion) {
+  mapply(
+    function(proportion) {
+      c(range %*% c(1 - proportion, proportion))
+    },
+    proportion = proportion
+  )
+}
+
+# Calculate quantile interval
+.qti <- function(x, interval = 0.95) {
+  check_qti(interval)
+  int_low <- (1 - interval) / 2
+  int_up <- 1 - int_low
+  qt_low <- quantile(x, int_low)
+  qt_up <- quantile(x, int_up)
+  return(c(qt_low, qt_up))
+}
+
+# Calculate MSE
+.mse_loss <- function(y, y_hat) mean((y - y_hat)^2)
+
+# next_date(c("2021-01-01", "2021-02-01"))
+# next_date(c("2021-01-01", "2021-01-08", "2021-01-15"))
+# next_date(c(Sys.Date() - 1, Sys.Date()))
+.next_date <- function(dates) {
+  dates <- as.Date(dates)
+  diffs <- diff(dates)
+  if (all(diffs == 1)) {
+    frequency <- "daily"
+  } else if (all(diffs == 7)) {
+    frequency <- "weekly"
+  } else if (all(format(dates[-length(dates)], "%Y-%m") != format(dates[-1], "%Y-%m"))) {
+    frequency <- "monthly"
+  } else {
+    warning(paste(
+      "Unable to determine frequency to calculate next logical date.",
+      "Returning last available date."
+    ))
+    return(as.Date(tail(dates, 1)))
+  }
+  next_date <- switch(frequency,
+    "daily" = dates[length(dates)] + 1,
+    "weekly" = dates[length(dates)] + 7,
+    "monthly" = seq(dates[length(dates)], by = "1 month", length.out = 2)[2]
+  )
+  return(as.Date(next_date))
+}

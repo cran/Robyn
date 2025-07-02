@@ -23,6 +23,7 @@ robyn_allocator(
   optim_algo = "SLSQP_AUGLAG",
   maxeval = 1e+05,
   constr_mode = "eq",
+  keep_zero_coefs = FALSE,
   plots = TRUE,
   plot_folder = NULL,
   plot_folder_sub = NULL,
@@ -86,7 +87,7 @@ for each paid media variable when maximizing total media response. For example,
 \code{channel_constr_low = 0.7} means minimum spend of the variable is 70% of historical
 average, using non-zero spend values, within \code{date_min} and \code{date_max} date range.
 Both constrains must be length 1 (same for all values) OR same length and order as
-\code{paid_media_spends}. It's not recommended to 'exaggerate' upper bounds, especially
+\code{paid_media_selected}. It's not recommended to 'exaggerate' upper bounds, especially
 if the new level is way higher than historical level. Lower bound must be >=0.01,
 and upper bound should be < 5.}
 
@@ -106,6 +107,9 @@ Defaults to 100000.}
 
 \item{constr_mode}{Character. Options are \code{"eq"} or \code{"ineq"},
 indicating constraints with equality or inequality.}
+
+\item{keep_zero_coefs}{Boolean. By default, zero coefficient (betas) channels
+will be removed to avoid spending budget were there is no impact.}
 
 \item{plots}{Boolean. Generate plots?}
 

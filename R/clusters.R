@@ -343,6 +343,7 @@ errors_scores <- function(df, balance = rep(1, 3), ts_validation = TRUE, ...) {
 }
 
 .min_max_norm <- function(x, min = 0, max = 1) {
+  x[is.nan(x)] <- max
   x <- x[is.finite(x)]
   x <- x[!is.na(x)]
   if (length(x) <= 1) {
@@ -381,7 +382,7 @@ errors_scores <- function(df, balance = rep(1, 3), ts_validation = TRUE, ...) {
       position = position_nudge(x = -0.02, y = 0.1),
       colour = "grey30", size = 3.5
     ) +
-    geom_vline(xintercept = 1, linetype = "dashed", size = .5, colour = "grey75") +
+    geom_vline(xintercept = 1, linetype = "dashed", linewidth = .5, colour = "grey75") +
     # scale_fill_viridis_c(option = "D") +
     labs(
       title = paste("In-Cluster", temp, "& bootstrapped 95% CI"),

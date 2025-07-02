@@ -24,7 +24,7 @@ Hill-transformed value of the x_marginal input.}
 \item{plot}{Boolean. Do you wish to return the plot?}
 }
 \value{
-Numeric values. Transformed values.
+List. x_saturated as transformed values and inflexion point
 }
 \description{
 \code{saturation_hill} is a two-parametric version of the Hill
@@ -38,6 +38,6 @@ saturation_hill(c(100, 150, 170, 190, 200), alpha = 3, gamma = 0.5)
 \seealso{
 Other Transformations: 
 \code{\link{adstock_geometric}()},
-\code{\link{mic_men}()}
+\code{\link{transformations}}
 }
 \concept{Transformations}
